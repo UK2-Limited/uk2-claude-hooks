@@ -27,7 +27,7 @@ Idempotent — doc `_id`s are the sha1 of each line, the same scheme the live sh
 ## Install
 
 ```
-/plugin marketplace add uk2group/uk2-claude-hooks
+/plugin marketplace add UK2-Limited/uk2-claude-hooks
 /plugin install uk2-claude-hooks@uk2-claude-hooks
 ```
 
@@ -41,7 +41,7 @@ To auto-enable for a whole team, a consuming repo can add to its `.claude/settin
 {
   "extraKnownMarketplaces": {
     "uk2-claude-hooks": {
-      "source": { "source": "github", "repo": "uk2group/uk2-claude-hooks" }
+      "source": { "source": "github", "repo": "UK2-Limited/uk2-claude-hooks" }
     }
   },
   "enabledPlugins": { "uk2-claude-hooks@uk2-claude-hooks": true }

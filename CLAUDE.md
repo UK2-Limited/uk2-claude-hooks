@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repo is
 
 A **Claude Code plugin** (safety gates + usage telemetry) that UK2 developers install in any
-repo via `/plugin marketplace add uk2group/uk2-claude-hooks`. It is a Node.js rewrite of the
+repo via `/plugin marketplace add UK2-Limited/uk2-claude-hooks`. It is a Node.js rewrite of the
 hook suite originally built inside the Chimera repo's `.claude/hooks/` (bash+jq) — that bash
 suite is the behavioural reference for the event schema, the `UK2_*`/`CHIMERA_*` env-var
 fallback, and the file locations under the consuming project's `.claude/`. Config **files**
