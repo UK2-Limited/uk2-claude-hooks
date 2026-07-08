@@ -246,6 +246,28 @@ async function waitSpoolStable(timeoutMs = 10000) {
   wantAllow('UK2_TEST_INTEGRITY_DISABLE turns hook off');
   fs.rmSync(HOOKSJSON, { force: true });
 
+  console.log('== test-integrity (repo\'s own validation config) ==');
+  // .claude/validation/hooks.json pins testIntegrity to this suite's own harness
+  // idioms (check/wantDeny/wantBlock/wantAllow/wantCtx) — it must not drift.
+  fs.copyFileSync(path.join(ROOT, '.claude', 'validation', 'hooks.json'), HOOKSJSON);
+  const tiRepo = (tool_input, extra = {}) => run('test-integrity.js',
+    { session_id: SID, tool_name: 'Edit', tool_input },
+    { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON, ...extra });
+  tiRepo({ file_path: 'test/run.js', old_string: "check('a', x);\nwantDeny('b');", new_string: "check('a', x);" });
+  wantDeny('repo config: harness assertion drop denied');
+  tiRepo({ file_path: 'test/run.js', old_string: "wantBlock('x');", new_string: "wantBlock('x'); // wantAllow('y');" });
+  wantDeny('repo config: commented-out assertion denied');
+  tiRepo({ file_path: 'test/run.js', old_string: "check('a', 1);", new_string: "check('a', 1);\nwantCtx('b');" });
+  wantAllow('repo config: added assertion allowed');
+  tiRepo({ file_path: 'test/run.js', old_string: "check('a', 1);", new_string: "check('a', 1);\nskip('docker unavailable');" });
+  wantAllow('repo config: legitimate skip() helper not flagged');
+  tiRepo({ file_path: 'scripts/foo.js', old_string: "check('a', x);\nwantDeny('b');", new_string: "check('a', x);" });
+  wantAllow('repo config: fileRe scopes gate to test/');
+  tiRepo({ file_path: 'test/run.js', old_string: "check('a', x);\nwantDeny('b');", new_string: "check('a', x);" },
+    { UK2_AGENT_MODE: '' });
+  wantAllow('repo config: interactive session warns but allows');
+  fs.rmSync(HOOKSJSON, { force: true });
+
   console.log('== compile-check (skip paths) ==');
   run('compile-check.js', { session_id: SID, tool_name: 'Edit', tool_input: { file_path: 'lib/Foo.pm' } },
     { UK2_DEVENV_DIR: '/nonexistent-devenv' });
