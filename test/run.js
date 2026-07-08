@@ -44,8 +44,9 @@ const SPOOL = path.join(PROJ, '.claude', 'telemetry', 'unshipped.jsonl');
 const TICKET = path.join(PROJ, '.claude', 'state', 'ticket.json');
 const VERIFY = path.join(PROJ, '.claude', 'state', 'verify.json');
 const CAP = path.join(PROJ, '.claude', 'state', `stop-blocks-${SID}`);
-// Scratch hooks.env for the configured-gate tests (passed via UK2_HOOKS_CONFIG).
-const HOOKSENV = path.join(PROJ, 'hooks-test.env');
+// Scratch hooks.json for the configured-gate tests (passed via UK2_HOOKS_CONFIG).
+const HOOKSJSON = path.join(PROJ, 'hooks-test.json');
+function writeHooksCfg(obj) { fs.writeFileSync(HOOKSJSON, JSON.stringify(obj)); }
 
 // --- harness ---
 let pass = 0;
@@ -56,13 +57,13 @@ let ERR = '';
 let RC = 0;
 
 function run(script, payload, extraEnv = {}) {
-  const env = { ...process.env, CLAUDE_PROJECT_DIR: PROJ, UK2_TELEMETRY_CONFIG: '/nonexistent-telemetry.env' };
+  const env = { ...process.env, CLAUDE_PROJECT_DIR: PROJ, UK2_TELEMETRY_CONFIG: '/nonexistent-telemetry.json' };
   // Never inherit ambient agent-mode / telemetry state from the caller's shell.
   for (const k of ['CI', 'UK2_AGENT_MODE', 'CHIMERA_AGENT_MODE', 'UK2_ALLOW_DANGEROUS',
     'CHIMERA_ALLOW_DANGEROUS', 'UK2_ISSUE', 'CHIMERA_ISSUE', 'UK2_TELEMETRY_DISABLE',
     'CHIMERA_TELEMETRY_DISABLE', 'CHIMERA_TELEMETRY_CONFIG', 'UK2_TELEMETRY_SPOOL',
     'CHIMERA_TELEMETRY_SPOOL', 'UK2_DEVENV_DIR', 'CHIMERA_DEVENV_DIR']) delete env[k];
-  // Ditto for any ambient gate config (hooks.env keys as env vars).
+  // Ditto for any ambient gate config (config-path vars and kill switches).
   for (const k of Object.keys(env)) {
     if (/^(UK2|CHIMERA)_(HOOKS_CONFIG|COMPILE_CHECK|TEST_INTEGRITY|STOP_GATE)/.test(k)) delete env[k];
   }
@@ -164,23 +165,26 @@ async function waitSpoolStable(timeoutMs = 10000) {
   };
   run('test-integrity.js', jsDrop, { UK2_AGENT_MODE: 'implement' });
   wantAllow('js test file ignored by default heuristics');
-  fs.writeFileSync(HOOKSENV,
-    'UK2_TEST_INTEGRITY_FILE_RE="\\.test\\.js$"\n'
-    + 'UK2_TEST_INTEGRITY_ASSERT_RE="\\bexpect\\s*\\("\n'
-    + 'UK2_TEST_INTEGRITY_SKIP_RE="\\b(it|test)\\.skip\\b"\n');
-  run('test-integrity.js', jsDrop, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
-  wantDeny('configured ASSERT_RE denies js assertion drop');
+  writeHooksCfg({
+    testIntegrity: {
+      fileRe: '\\.test\\.js$',
+      assertRe: '\\bexpect\\s*\\(',
+      skipRe: '\\b(it|test)\\.skip\\b',
+    },
+  });
+  run('test-integrity.js', jsDrop, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantDeny('configured assertRe denies js assertion drop');
   run('test-integrity.js', {
     session_id: SID,
     tool_name: 'Edit',
     tool_input: { file_path: 'src/foo.test.js', old_string: "it('x', f);", new_string: "it.skip('x', f);" },
-  }, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
-  wantDeny('configured SKIP_RE denies introduced skip');
-  run('test-integrity.js', editDrop, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
-  wantAllow('FILE_RE override replaces the perl heuristic');
+  }, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantDeny('configured skipRe denies introduced skip');
+  run('test-integrity.js', editDrop, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantAllow('fileRe override replaces the perl heuristic');
   run('test-integrity.js', editDrop, { UK2_AGENT_MODE: 'implement', UK2_TEST_INTEGRITY_DISABLE: '1' });
   wantAllow('UK2_TEST_INTEGRITY_DISABLE turns hook off');
-  fs.rmSync(HOOKSENV, { force: true });
+  fs.rmSync(HOOKSJSON, { force: true });
 
   console.log('== compile-check (skip paths) ==');
   run('compile-check.js', { session_id: SID, tool_name: 'Edit', tool_input: { file_path: 'lib/Foo.pm' } },
@@ -191,47 +195,71 @@ async function waitSpoolStable(timeoutMs = 10000) {
 
   console.log('== compile-check (configured steps) ==');
   const ccEdit = (fp) => ({ session_id: SID, tool_name: 'Edit', tool_input: { file_path: fp } });
-  const ccRun = (payload, extra = {}) => run('compile-check.js', payload, { UK2_HOOKS_CONFIG: HOOKSENV, ...extra });
+  const ccRun = (payload, extra = {}) => run('compile-check.js', payload, { UK2_HOOKS_CONFIG: HOOKSJSON, ...extra });
 
-  fs.writeFileSync(HOOKSENV,
-    'UK2_COMPILE_CHECK_1_MATCH="\\.pm$"\n'
-    + 'UK2_COMPILE_CHECK_1_CMD="echo compile error in {file} >&2; exit 2"\n');
+  writeHooksCfg({ compileCheck: { steps: [
+    { match: '\\.pm$', cmd: 'echo compile error in {file} >&2; exit 2' },
+  ] } });
   ccRun(ccEdit('lib/Foo.pm'));
   wantBlock('failing step blocks');
   check('block carries command output', OUT.includes('compile error in'));
   const cf = lastEvent('compile_fail');
   check('compile_fail logged with step+cmd', cf && cf.step === 1 && cf.file === 'lib/Foo.pm' && typeof cf.cmd === 'string');
 
-  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_MATCH="\\.pm$"\nUK2_COMPILE_CHECK_1_CMD="true"\n');
+  writeHooksCfg({ compileCheck: { steps: [{ match: '\\.pm$', cmd: 'true' }] } });
   ccRun(ccEdit('lib/Foo.pm')); wantAllow('passing step allows');
 
-  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_MATCH="\\.ts$"\nUK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  writeHooksCfg({ compileCheck: { steps: [{ match: '\\.ts$', cmd: 'exit 1' }] } });
   ccRun(ccEdit('lib/Foo.pm')); wantAllow('non-matching step skipped');
 
-  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_PRECHECK="false"\nUK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  writeHooksCfg({ compileCheck: { steps: [{ precheck: 'false', cmd: 'exit 1' }] } });
   ccRun(ccEdit('lib/Foo.pm')); wantAllow('failed precheck skips quietly');
 
-  fs.writeFileSync(HOOKSENV,
-    'UK2_COMPILE_CHECK_1_CMD="echo WARNING: unresolved reference"\n'
-    + 'UK2_COMPILE_CHECK_1_ERROR_RE="unresolved reference"\n');
-  ccRun(ccEdit('lib/Foo.pm')); wantBlock('ERROR_RE match blocks despite exit 0');
+  writeHooksCfg({ compileCheck: { steps: [
+    { cmd: 'echo WARNING: unresolved reference', errorRe: 'unresolved reference' },
+  ] } });
+  ccRun(ccEdit('lib/Foo.pm')); wantBlock('errorRe match blocks despite exit 0');
 
-  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_CMD="true"\nUK2_COMPILE_CHECK_2_CMD="exit 3"\n');
+  writeHooksCfg({ compileCheck: { steps: [{ cmd: 'true' }, { cmd: 'exit 3' }] } });
   ccRun(ccEdit('lib/Foo.pm')); wantBlock('second step failure blocks');
 
-  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_MATCH="\\.md$"\nUK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  writeHooksCfg({ compileCheck: { steps: [{ match: '\\.md$', cmd: 'exit 1' }] } });
   ccRun(ccEdit('docs/README.md')); wantBlock('configured steps reach beyond .pm/.pl');
 
-  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  // 25 steps: only the last one matches — proves the old 1..20 cap is gone.
+  writeHooksCfg({ compileCheck: { steps: [
+    ...Array.from({ length: 24 }, () => ({ match: '\\.nomatch$', cmd: 'true' })),
+    { match: '\\.pm$', cmd: 'echo step25 fails >&2; exit 1' },
+  ] } });
+  ccRun(ccEdit('lib/Foo.pm'));
+  wantBlock('step beyond the old 20-step cap still runs');
+  const cf25 = lastEvent('compile_fail');
+  check('compile_fail step numbered by array position', cf25 && cf25.step === 25);
+
+  writeHooksCfg({ compileCheck: { steps: [] } });
+  ccRun(ccEdit('lib/Foo.pm')); wantAllow('explicit empty steps means no checks');
+
+  writeHooksCfg({ compileCheck: { steps: [{ cmd: 'exit 1' }], disable: true } });
+  ccRun(ccEdit('lib/Foo.pm')); wantAllow('compileCheck.disable turns hook off');
+
+  writeHooksCfg({ compileCheck: { steps: [{ cmd: 'exit 1' }] } });
   ccRun(ccEdit('lib/Foo.pm'), { UK2_COMPILE_CHECK_DISABLE: '1' });
   wantAllow('UK2_COMPILE_CHECK_DISABLE turns hook off');
-  fs.rmSync(HOOKSENV, { force: true });
+  fs.rmSync(HOOKSJSON, { force: true });
 
-  const DEFHOOKSENV = path.join(PROJ, '.claude', 'validation', 'hooks.env');
-  fs.writeFileSync(DEFHOOKSENV, 'UK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  const DEFHOOKSJSON = path.join(PROJ, '.claude', 'validation', 'hooks.json');
+  fs.writeFileSync(DEFHOOKSJSON, JSON.stringify({ compileCheck: { steps: [{ cmd: 'exit 1' }] } }));
   run('compile-check.js', ccEdit('lib/Foo.pm'));
-  wantBlock('default .claude/validation/hooks.env is picked up');
-  fs.rmSync(DEFHOOKSENV, { force: true });
+  wantBlock('default .claude/validation/hooks.json is picked up');
+  fs.rmSync(DEFHOOKSJSON, { force: true });
+
+  // Legacy env-format config is deliberately ignored (with a stderr nag).
+  const LEGACYHOOKS = path.join(PROJ, '.claude', 'validation', 'hooks.env');
+  fs.writeFileSync(LEGACYHOOKS, 'UK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  run('compile-check.js', ccEdit('docs/README.md'));
+  wantAllow('legacy hooks.env is no longer read');
+  check('migration nag on stderr', ERR.includes('no longer read'));
+  fs.rmSync(LEGACYHOOKS, { force: true });
 
   console.log('== stop-require-evidence ==');
   fs.rmSync(VERIFY, { force: true }); fs.rmSync(CAP, { force: true });
@@ -251,26 +279,61 @@ async function waitSpoolStable(timeoutMs = 10000) {
   run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_STOP_GATE_DISABLE: '1' });
   wantAllow('UK2_STOP_GATE_DISABLE turns gate off');
 
-  fs.writeFileSync(HOOKSENV, 'UK2_STOP_GATE_CMD="true"\n');
-  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
-  wantAllow('passing STOP_GATE_CMD replaces sentinel');
+  writeHooksCfg({ stopGate: { cmds: ['true'] } });
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantAllow('passing stopGate.cmds replaces sentinel');
 
-  fs.writeFileSync(HOOKSENV,
-    'UK2_STOP_GATE_CMD="echo 3 tests failing; exit 1"\n'
-    + 'UK2_STOP_GATE_MESSAGE="Verify must pass for {head}."\n');
-  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
-  wantBlock('failing STOP_GATE_CMD blocks');
+  writeHooksCfg({ stopGate: { cmds: 'true' } });
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantAllow('bare-string cmds is tolerated');
+
+  fs.rmSync(CAP, { force: true });
+  writeHooksCfg({ stopGate: { cmds: ['true', 'true'] } });
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantAllow('all cmds passing allows stop');
+
+  writeHooksCfg({ stopGate: {
+    cmds: ['echo 3 tests failing; exit 1'],
+    message: 'Verify must pass for {head}.',
+  } });
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantBlock('failing cmd blocks');
   check('custom message fills {head} and carries output',
     OUT.includes(`Verify must pass for ${HEAD}.`) && OUT.includes('3 tests failing'));
 
   fs.rmSync(CAP, { force: true });
-  fs.writeFileSync(HOOKSENV, 'UK2_STOP_GATE_CMD="false"\nUK2_STOP_GATE_MAX_BLOCKS=1\n');
-  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
-  wantBlock('first failure blocks under MAX_BLOCKS=1');
-  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
-  wantAllow('cap exhausted after MAX_BLOCKS blocks');
-  fs.rmSync(HOOKSENV, { force: true });
+  writeHooksCfg({ stopGate: { cmds: ['true', 'echo lint broke; exit 1'] } });
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantBlock('second cmd failure blocks');
+  check('block names the failing command and its output',
+    OUT.includes('echo lint broke') && OUT.includes('lint broke'));
+
+  fs.rmSync(CAP, { force: true });
+  writeHooksCfg({ stopGate: { cmds: ['false'], maxBlocks: 1 } });
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantBlock('first failure blocks under maxBlocks=1');
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantAllow('cap exhausted after maxBlocks blocks');
+
+  fs.rmSync(CAP, { force: true });
+  writeHooksCfg({ stopGate: { cmds: ['false'], disable: true } });
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantAllow('stopGate.disable turns gate off');
+  fs.rmSync(HOOKSJSON, { force: true });
   fs.rmSync(VERIFY, { force: true }); fs.rmSync(CAP, { force: true });
+
+  console.log('== broken hooks.json fails open ==');
+  fs.writeFileSync(HOOKSJSON, '{ nope');
+  ccRun(ccEdit('lib/Foo.pm'));
+  wantAllow('compile-check skips on malformed hooks.json');
+  check('invalid-JSON note on stderr', ERR.includes('invalid JSON'));
+  run('test-integrity.js', editDrop, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantAllow('test-integrity skips on malformed hooks.json');
+  fs.rmSync(CAP, { force: true });
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
+  wantAllow('stop gate skips on malformed hooks.json');
+  fs.rmSync(HOOKSJSON, { force: true });
+  fs.rmSync(CAP, { force: true });
 
   console.log('== session-context ==');
   fs.writeFileSync(TICKET, JSON.stringify({
@@ -322,6 +385,21 @@ async function waitSpoolStable(timeoutMs = 10000) {
     && ev.tokens_cache_read === 20 && ev.tokens_cache_created === 0 && ev.message_id === 'msg_test2');
   check('events stamped with user+host', ev && ev.user === 'hooktest@uk2group.com'
     && typeof ev.host === 'string' && ev.host.length > 0);
+  check('repo falls back to folder basename (no remote)', ev && ev.repo === path.basename(PROJ));
+
+  gitP('remote', 'add', 'origin', 'git@github.com:uk2group/scratch-repo.git');
+  run('telemetry-posttool.js', {
+    session_id: SID, tool_name: 'Read', tool_input: { file_path: 'lib/Foo.pm' }, tool_response: {},
+  });
+  ev = lastEvent('tool_use');
+  check('repo parsed from ssh origin', ev && ev.repo === 'uk2group/scratch-repo');
+
+  gitP('remote', 'set-url', 'origin', 'https://github.com/uk2group/scratch-repo.git');
+  run('telemetry-posttool.js', {
+    session_id: SID, tool_name: 'Read', tool_input: { file_path: 'lib/Foo.pm' }, tool_response: {},
+  });
+  ev = lastEvent('tool_use');
+  check('repo parsed from https origin', ev && ev.repo === 'uk2group/scratch-repo');
 
   run('telemetry-posttool.js', {
     session_id: SID,
@@ -386,17 +464,40 @@ async function waitSpoolStable(timeoutMs = 10000) {
     RC === 0 && lastEvent('tool_failure') !== null && !fs.existsSync(SPOOL) && ERR.trim() === '');
 
   // Unreachable ES: hook still exits 0 instantly; the detached shipper spools.
-  run('telemetry-posttool.js', failPayload, { UK2_TELEMETRY_CONFIG: path.join(FIXTURES, 'telemetry-unreachable.env') });
+  run('telemetry-posttool.js', failPayload, { UK2_TELEMETRY_CONFIG: path.join(FIXTURES, 'telemetry-unreachable.json') });
   check('hook exit 0 with unreachable ES', RC === 0);
   let spooled = await waitSpoolStable();
   check('failed send spooled to unshipped.jsonl', spooled.includes('"event":"tool_failure"'));
 
-  // Legacy CHIMERA_* config keeps working through the fallback.
+  // Legacy CHIMERA_* env vars keep working through the envc() fallback
+  // (the base env's UK2_TELEMETRY_CONFIG is blanked so the twin can win).
   fs.rmSync(SPOOL, { force: true });
-  run('telemetry-posttool.js', failPayload, { UK2_TELEMETRY_CONFIG: path.join(FIXTURES, 'telemetry-legacy-chimera.env') });
-  check('hook exit 0 with legacy CHIMERA_* config', RC === 0);
+  run('telemetry-posttool.js', failPayload, {
+    UK2_TELEMETRY_CONFIG: '',
+    CHIMERA_TELEMETRY_CONFIG: path.join(FIXTURES, 'telemetry-unreachable.json'),
+  });
+  check('hook exit 0 with CHIMERA_-named config path', RC === 0);
   spooled = await waitSpoolStable();
-  check('legacy-named config still ships (spools)', spooled.includes('"event":"tool_failure"'));
+  check('CHIMERA_* env-var fallback still ships (spools)', spooled.includes('"event":"tool_failure"'));
+
+  // Malformed config.json: shipping silently off, nothing spooled, no crash.
+  const BADTELE = path.join(PROJ, 'bad-telemetry.json');
+  fs.writeFileSync(BADTELE, '{ nope');
+  fs.rmSync(SPOOL, { force: true });
+  run('telemetry-posttool.js', failPayload, { UK2_TELEMETRY_CONFIG: BADTELE });
+  check('hook exit 0 with malformed telemetry config', RC === 0);
+  await sleep(500);
+  check('malformed telemetry config spools nothing', !fs.existsSync(SPOOL));
+  fs.rmSync(BADTELE, { force: true });
+
+  // Legacy config.env alone: ignored, but the foreground hook nags on stderr.
+  const LEGACYTELE = path.join(PROJ, '.claude', 'telemetry', 'config.env');
+  fs.writeFileSync(LEGACYTELE, 'UK2_TELEMETRY_ES_URL="http://127.0.0.1:9"\n');
+  fs.rmSync(SPOOL, { force: true });
+  run('telemetry-posttool.js', failPayload, { UK2_TELEMETRY_CONFIG: '' });
+  check('legacy config.env is no longer read (exit 0, nothing spooled, nag)',
+    RC === 0 && !fs.existsSync(SPOOL) && ERR.includes('no longer read'));
+  fs.rmSync(LEGACYTELE, { force: true });
 
   console.log('== session-summary (token aggregation) ==');
   fs.writeFileSync(path.join(PROJ, '.claude', 'state', `session-${SID}.json`),

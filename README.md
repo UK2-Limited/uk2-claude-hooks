@@ -12,11 +12,11 @@ Elasticsearch never blocks a tool call. Only explicit gate decisions (deny/block
 | Hook | Event | What it does |
 |---|---|---|
 | `block-dangerous-bash` | PreToolUse (Bash) | Hard floor under the permission allowlist: denies `rm -rf /~/.`, `git push --force`, `DROP/TRUNCATE` on non-test DBs, `docker compose down -v`. Human override: `UK2_ALLOW_DANGEROUS=1` (ignored in agent/CI mode). |
-| `test-integrity` | PreToolUse (edits) | Flags edits that weaken test files (assertion count drops, introduced SKIP/TODO). Hard-deny in agent/CI mode, warn-only locally. Perl heuristics by default; file/assertion/skip regexes overridable via `hooks.env`. |
+| `test-integrity` | PreToolUse (edits) | Flags edits that weaken test files (assertion count drops, introduced SKIP/TODO). Hard-deny in agent/CI mode, warn-only locally. Perl heuristics by default; file/assertion/skip regexes overridable via `hooks.json`. |
 | `protected-paths` | PreToolUse (edits) | Policy-driven write protection from `<project>/.claude/validation/protected-paths.txt`. **Currently disabled** (early exit, parity with the Chimera branch) — re-enable together with the skipped tests in `test/run.js`. |
-| `compile-check` | PostToolUse (edits) | Compile/syntax-checks the edited file and feeds errors back to Claude. Configurable as numbered command steps (file-match regex + shell command) via `hooks.env`; with no steps configured it defaults to `perl -c` for `.pm`/`.pl` inside the docker-compose `api` container, skipping quietly when no container is running (i.e. in non-Chimera repos). |
+| `compile-check` | PostToolUse (edits) | Compile/syntax-checks the edited file and feeds errors back to Claude. Configurable as an array of command steps (file-match regex + shell command) via `hooks.json`; with no steps configured it defaults to `perl -c` for `.pm`/`.pl` inside the docker-compose `api` container, skipping quietly when no container is running (i.e. in non-Chimera repos). |
 | `telemetry-posttool` | PostToolUse (*) | Emits the per-call telemetry events (see schema below). |
-| `stop-require-evidence` | Stop | Agent/CI mode only: refuses to finish until `.claude/state/verify.json` shows passing evidence for the current HEAD — or, via `hooks.env`, until a project-defined verify command exits 0. Block message and cap (default 3) configurable. |
+| `stop-require-evidence` | Stop | Agent/CI mode only: refuses to finish until `.claude/state/verify.json` shows passing evidence for the current HEAD — or, via `hooks.json`, until every project-defined verify command exits 0. Block message and cap (default 3) configurable. |
 | `session-context` | SessionStart | Injects issue + acceptance criteria from `.claude/state/ticket.json` when present; records the wall-time baseline. |
 | `session-summary` | SessionEnd | Per-session roll-up: token totals from the transcript, wall time, test/failure counts. |
 
@@ -52,70 +52,112 @@ To auto-enable for a whole team, a consuming repo can add to its `.claude/settin
 > these hooks** (e.g. Chimera before its hook-removal PR lands) — both copies would run and
 > every telemetry event would be logged twice.
 
-## Configure the gates (`hooks.env`)
+## Configure the gates (`hooks.json`)
 
 The three Chimera-flavoured gates take per-project config from
-`<project>/.claude/validation/hooks.env` (copy `hooks.env.example`; commit it — no secrets
-in it; override the path with `UK2_HOOKS_CONFIG`). Same shell-style `KEY="value"` format as
-the telemetry config; every key also works as a plain env var (file wins), and every
-`UK2_*` name accepts a `CHIMERA_*` twin. Without the file, all three keep their built-in
-Chimera behaviour.
+`<project>/.claude/validation/hooks.json` (copy `hooks.json.example`; commit it — no
+secrets in it; override the path with `UK2_HOOKS_CONFIG`). Without the file, all three keep
+their built-in Chimera behaviour.
 
-**compile-check** — numbered steps run in order for every matching edited file; the first
-failing step blocks with the command's output. Placeholders in commands/cwd: `{file}`
-(repo-relative path, shell-quoted), `{root}`, `{devenv}`.
-
+```json
+{
+  "compileCheck": {
+    "steps": [
+      { "match": "\\.tsx?$", "cmd": "npx tsc --noEmit", "timeoutMs": 120000 },
+      { "match": "\\.py$", "cmd": "python -m pyflakes {file} 2>&1 || true",
+        "errorRe": "undefined name|invalid syntax" }
+    ]
+  },
+  "testIntegrity": {
+    "fileRe": "\\.test\\.[jt]sx?$",
+    "assertRe": "\\bexpect\\s*\\(",
+    "skipRe": "\\b(it|test|describe)\\.skip\\b"
+  },
+  "stopGate": {
+    "cmds": ["npm test", "npm run lint"]
+  }
+}
 ```
-UK2_COMPILE_CHECK_1_MATCH="\.tsx?$"        # path regex; omit to match every file
-UK2_COMPILE_CHECK_1_CMD="npx tsc --noEmit" # required; non-zero exit blocks
-UK2_COMPILE_CHECK_1_CWD="{root}"           # optional
-UK2_COMPILE_CHECK_1_PRECHECK="..."         # optional; non-zero exit -> skip step quietly
-UK2_COMPILE_CHECK_1_ERROR_RE="..."         # optional; also fail when output matches (even at exit 0)
-UK2_COMPILE_CHECK_1_TIMEOUT_MS=60000       # optional
-UK2_COMPILE_CHECK_DISABLE=1                # kill switch
-```
 
-**test-integrity** — swap the Perl heuristics for your test dialect (set the three
-together): `UK2_TEST_INTEGRITY_FILE_RE` (which paths count as tests),
-`UK2_TEST_INTEGRITY_ASSERT_RE` (assertion pattern, counted before/after, flag `g`),
-`UK2_TEST_INTEGRITY_SKIP_RE` (skip/TODO pattern, flags `im`),
-`UK2_TEST_INTEGRITY_DISABLE`.
+**compileCheck** — `steps` is an array run in order for every matching edited file; the
+first failing step blocks with the command's output. Adding another check is adding another
+object to the array — there is no step limit. Per step: `cmd` (required; non-zero exit
+blocks), `match` (path regex; omit to match every file), `cwd` (default `{root}`),
+`precheck` (non-zero exit → skip the step quietly, e.g. "is the container up"), `errorRe`
+(also fail when the output matches, even at exit 0), `timeoutMs` (default 60000).
+Placeholders in `cmd`/`precheck`/`cwd`: `{file}` (repo-relative path, shell-quoted),
+`{root}`, `{devenv}`. With no `steps` key, the built-in Chimera default runs (`perl -c` in
+the docker-compose `api` container for `*.pm`/`*.pl`); an explicit empty `"steps": []`
+means "no checks".
 
-**stop-require-evidence** — `UK2_STOP_GATE_CMD` (exit 0 = evidence, replacing the
-`verify.json` sentinel; `{root}`/`{head}` placeholders; failure output is fed back to
-Claude), `UK2_STOP_GATE_MESSAGE` (custom block text, `{head}` placeholder),
-`UK2_STOP_GATE_MAX_BLOCKS` (default 3), `UK2_STOP_GATE_TIMEOUT_MS` (default 120000),
-`UK2_STOP_GATE_DISABLE`.
+**testIntegrity** — swap the Perl heuristics for your test dialect (set the three
+together): `fileRe` (which paths count as tests), `assertRe` (assertion pattern, counted
+before/after, flag `g`), `skipRe` (skip/TODO pattern, flags `im`).
 
-Everything stays fail-open: an unreadable file, invalid regex, or a command that cannot
-run (missing binary, timeout) skips the check with a stderr note — only a real non-zero
-exit (or `ERROR_RE` match) blocks.
+**stopGate** — `cmds` is an array of shell commands run in order; **all** must exit 0 to
+count as evidence (replacing the `verify.json` sentinel). The first failure blocks with
+that command's output; the rest are not run. `{root}`/`{head}` placeholders. Other keys:
+`message` (custom block text, `{head}`/`{root}` placeholders), `maxBlocks` (default 3),
+`timeoutMs` (per command, default 120000).
+
+Each gate also takes `"disable": true` in its block, or an environment kill switch that
+works without editing the committed file (handy in CI): `UK2_COMPILE_CHECK_DISABLE`,
+`UK2_TEST_INTEGRITY_DISABLE`, `UK2_STOP_GATE_DISABLE`.
+
+Everything stays fail-open: a missing or malformed `hooks.json`, invalid regex, or a
+command that cannot run (missing binary, timeout) skips the check with a stderr note —
+only a real non-zero exit (or `errorRe` match) blocks.
 
 ## Configure telemetry shipping
 
 Without config, hooks only write local JSONL under `<project>/.claude/telemetry/` — shipping
 is off. To ship to Elasticsearch:
 
-1. Copy `telemetry.env.example` to `<project>/.claude/telemetry/config.env`, `chmod 600` it.
-2. Fill in `UK2_TELEMETRY_ES_URL` (+ API key / Cloudflare Access token as needed).
+1. Copy `telemetry.json.example` to `<project>/.claude/telemetry/config.json`, `chmod 600` it.
+2. Fill in `esUrl` (+ `esApiKey` / `cfClientId`+`cfClientSecret` as needed; `esIndex`
+   defaults to `claude-telemetry`).
 3. Make sure the consuming repo gitignores `.claude/telemetry/` and `.claude/state/`.
 
-Kill switch: `UK2_TELEMETRY_DISABLE=1` (env or config.env). Failed sends spool to
-`.claude/telemetry/unshipped.jsonl` and drain automatically on later events, or in bulk via
-the backfill CLI.
+Kill switch: `UK2_TELEMETRY_DISABLE=1` in the environment, or `"disable": true` in
+`config.json`. Failed sends spool to `.claude/telemetry/unshipped.jsonl` and drain
+automatically on later events, or in bulk via the backfill CLI.
 
-**Legacy names**: every `UK2_*` variable also accepts its `CHIMERA_*` twin (env and
-config.env), so pre-plugin Chimera configs work unchanged. Other knobs:
-`UK2_TELEMETRY_CONFIG` / `UK2_TELEMETRY_SPOOL` / `UK2_HOOKS_CONFIG` (override paths),
-`UK2_AGENT_MODE` (enables the hard gates; `CI=true` does too), `UK2_ISSUE` (issue
+**Environment variables**: every `UK2_*` variable also accepts its `CHIMERA_*` twin.
+Knobs: `UK2_TELEMETRY_CONFIG` / `UK2_TELEMETRY_SPOOL` / `UK2_HOOKS_CONFIG` (override
+paths), `UK2_AGENT_MODE` (enables the hard gates; `CI=true` does too), `UK2_ISSUE` (issue
 attribution), `UK2_DEVENV_DIR` (where docker-compose lives for compile-check's default
-step; default `<project>/..`).
+step; default `<project>/..`), plus the three gate kill switches above.
+
+## Migrating from `hooks.env` / `config.env`
+
+**Breaking change**: the plugin no longer reads the shell-style
+`.claude/validation/hooks.env` or `.claude/telemetry/config.env` files — config files are
+JSON now. Until converted, the gates fall back to their built-in defaults and telemetry
+shipping is off (local JSONL still accumulates and can be backfilled afterwards); hooks
+print a one-line stderr nag while a stale `.env` file is present. `UK2_*`/`CHIMERA_*`
+*environment variables* for mode, paths, and kill switches are unaffected.
+
+| Old env-file key | New JSON key |
+|---|---|
+| `UK2_COMPILE_CHECK_<n>_CMD/_MATCH/_CWD/_PRECHECK/_ERROR_RE/_TIMEOUT_MS` | `compileCheck.steps[i].cmd/match/cwd/precheck/errorRe/timeoutMs` (array order = run order; no more 20-step cap) |
+| `UK2_COMPILE_CHECK_DISABLE` | `compileCheck.disable` (env var still works) |
+| `UK2_TEST_INTEGRITY_FILE_RE/_ASSERT_RE/_SKIP_RE` | `testIntegrity.fileRe/assertRe/skipRe` |
+| `UK2_TEST_INTEGRITY_DISABLE` | `testIntegrity.disable` (env var still works) |
+| `UK2_STOP_GATE_CMD` | `stopGate.cmds` (now an array — all must pass) |
+| `UK2_STOP_GATE_TIMEOUT_MS/_MAX_BLOCKS/_MESSAGE` | `stopGate.timeoutMs/maxBlocks/message` |
+| `UK2_STOP_GATE_DISABLE` | `stopGate.disable` (env var still works) |
+| `UK2_TELEMETRY_ES_URL/_ES_INDEX/_ES_API_KEY` | `esUrl` / `esIndex` / `esApiKey` in `config.json` |
+| `UK2_TELEMETRY_CF_CLIENT_ID/_SECRET` | `cfClientId` / `cfClientSecret` |
+| `UK2_TELEMETRY_DISABLE` | `disable` (env var still works) |
+
+Delete the old `.env` files once converted to silence the migration nag.
 
 ## Event schema
 
-Every event carries `ts`, `event`, `session_id`, `branch`, `user` (git config user.email,
-`$USER` fallback), `host` (short hostname), `issue` (from `UK2_ISSUE` or
-`.claude/state/ticket.json`, else null). Per-type fields:
+Every event carries `ts`, `event`, `session_id`, `branch`, `repo` (`org/repo` parsed
+from the origin remote URL; folder basename when there is no remote/repo), `user`
+(git config user.email, `$USER` fallback), `host` (short hostname), `issue` (from
+`UK2_ISSUE` or `.claude/state/ticket.json`, else null). Per-type fields:
 
 | Event | Fields |
 |---|---|

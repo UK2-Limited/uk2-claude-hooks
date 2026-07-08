@@ -7,9 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A **Claude Code plugin** (safety gates + usage telemetry) that UK2 developers install in any
 repo via `/plugin marketplace add uk2group/uk2-claude-hooks`. It is a Node.js rewrite of the
 hook suite originally built inside the Chimera repo's `.claude/hooks/` (bash+jq) — that bash
-suite is the behavioural reference; this plugin must stay drop-in compatible with it
-(same event schema, same env vars via the `UK2_*`/`CHIMERA_*` fallback, same file locations
-under the consuming project's `.claude/`).
+suite is the behavioural reference for the event schema, the `UK2_*`/`CHIMERA_*` env-var
+fallback, and the file locations under the consuming project's `.claude/`. Config **files**
+are a deliberate break from Chimera: they are JSON (`hooks.json` / `config.json`, unprefixed
+camelCase keys) — the shell-style `hooks.env`/`config.env` files are intentionally no longer
+read (see the migration section in README.md).
 
 ## Layout
 
@@ -35,9 +37,11 @@ under the consuming project's `.claude/`).
 - **Never break the event schema silently.** Grafana dashboards and the Elasticsearch index
   consume these events; the schema table in README.md is the contract. Additive fields are
   fine; renames/removals need a deliberate decision.
-- **Keep the `CHIMERA_*` env fallback.** Existing Chimera `config.env` files must keep
-  working. All env access goes through `common.envc()` — never read `process.env.UK2_*`
-  directly.
+- **Keep the `CHIMERA_*` env fallback — for environment variables.** All env access goes
+  through `common.envc()` — never read `process.env.UK2_*` directly. This applies to env
+  VARS only: Chimera-format `hooks.env`/`config.env` *files* are intentionally not read
+  (JSON config files use unprefixed camelCase keys); hooks print a one-line stderr
+  migration nag when a stale `.env` file is found.
 - **Deterministic ship IDs.** Elasticsearch `_id` = sha1 of the JSON line, shared by the
   live shipper and the backfill CLI. Changing it breaks idempotent retries/dedupe.
 - `protected-paths.js` is **intentionally disabled** (early `process.exit(0)`), with its
@@ -53,7 +57,7 @@ claude plugin validate .  # manifest sanity (expect only the intentional no-vers
 
 The test suite must stay hermetic: it builds a throwaway git project in `$TMPDIR`, strips
 ambient `UK2_*`/`CHIMERA_*`/`CI` vars, and points the shipper at a closed port
-(`test/fixtures/telemetry-unreachable.env`) — it must never touch a real repo or a real
+(`test/fixtures/telemetry-unreachable.json`) — it must never touch a real repo or a real
 Elasticsearch. When adding a hook or event field, add a test in the same commit.
 
 ## Testing a change against a real project

@@ -1,0 +1,8 @@
+{
+  "esUrl": "https://es.example.com",
+  "esIndex": "claude-telemetry",
+  "esApiKey": "",
+  "cfClientId": "",
+  "cfClientSecret": "",
+  "disable": false
+}

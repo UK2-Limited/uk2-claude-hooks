@@ -3,16 +3,17 @@
 // Stop: in agent/CI mode, refuse to finish until there is passing
 // verification evidence for the current HEAD. Loop-safe; capped blocks.
 //
-// Evidence source is configurable via .claude/validation/hooks.env (see
-// hooks.env.example):
-//   UK2_STOP_GATE_CMD         shell command ({root}/{head} placeholders);
-//                             exit 0 counts as evidence and replaces the
-//                             sentinel check; a failure's output is fed back.
-//   (default)                 .claude/state/verify.json sentinel with
-//                             {"passed":true,"head_commit":<HEAD>}.
-// Other knobs: UK2_STOP_GATE_MESSAGE (block text, {head}/{root} placeholders),
-// UK2_STOP_GATE_MAX_BLOCKS (default 3), UK2_STOP_GATE_TIMEOUT_MS (default
-// 120000), UK2_STOP_GATE_DISABLE.
+// Evidence source is configurable via the stopGate block in
+// .claude/validation/hooks.json (see hooks.json.example):
+//   cmds        array of shell commands ({root}/{head} placeholders), run in
+//               order; ALL must exit 0 to count as evidence (replaces the
+//               sentinel check). The first failure's output is fed back and
+//               the remaining commands are not run.
+//   (default)   .claude/state/verify.json sentinel with
+//               {"passed":true,"head_commit":<HEAD>}.
+// Other knobs: message (block text, {head}/{root} placeholders), maxBlocks
+// (default 3), timeoutMs (per command, default 120000), disable (the
+// UK2_STOP_GATE_DISABLE env var also works).
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -25,32 +26,41 @@ c.run((input) => {
   // Only enforce in agent/CI mode — interactive local sessions end freely.
   if (!c.isAgentMode()) return;
 
-  const src = c.hooksConfig();
-  if (c.envc('STOP_GATE_DISABLE', src)) return;
+  const cfg = c.hooksConfig();
+  if (cfg === null) return; // broken hooks.json — fail open, never block
+  const sg = cfg.stopGate || {};
+  if (sg.disable || c.envc('STOP_GATE_DISABLE')) return;
 
   const root = c.repoRoot();
   const sid = c.get(input, 'session_id') || 'nosession';
   const head = c.gitOut(['rev-parse', 'HEAD']) || 'none';
   const fill = (s) => s.replace(/\{head\}/g, head).replace(/\{root\}/g, root);
 
-  const verifyCmd = c.envc('STOP_GATE_CMD', src);
+  // A bare string is tolerated and treated as a one-command list.
+  const cmds = (typeof sg.cmds === 'string' ? [sg.cmds] : Array.isArray(sg.cmds) ? sg.cmds : [])
+    .filter((s) => typeof s === 'string' && s);
   let failDetail = '';
-  if (verifyCmd) {
-    const timeout = Number(c.envc('STOP_GATE_TIMEOUT_MS', src)) || 120000;
-    try {
-      execFileSync('/bin/sh', ['-c', fill(verifyCmd)], {
-        cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout,
-      });
-      return; // verify command passed — evidence is in
-    } catch (e) {
-      if (typeof e.status !== 'number') {
-        // Spawn failure / timeout kill: the command never ran to a verdict.
-        process.stderr.write('uk2-claude-hooks: stop-gate verify command could not run — allowing stop (fail open)\n');
-        return;
+  if (cmds.length) {
+    const timeout = Number(sg.timeoutMs) || 120000;
+    let failed = null;
+    for (const cmd of cmds) {
+      try {
+        execFileSync('/bin/sh', ['-c', fill(cmd)], {
+          cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout,
+        });
+      } catch (e) {
+        if (typeof e.status !== 'number') {
+          // Spawn failure / timeout kill: the command never ran to a verdict.
+          process.stderr.write('uk2-claude-hooks: stop-gate verify command could not run — allowing stop (fail open)\n');
+          return;
+        }
+        failed = { cmd, status: e.status, out: `${e.stdout || ''}${e.stderr || ''}` };
+        break; // feed back one failure at a time; later commands are not run
       }
-      failDetail = `\n\nVerify command (${verifyCmd}) exited ${e.status}:\n`
-        + c.trunc(`${e.stdout || ''}${e.stderr || ''}`, 1500);
     }
+    if (!failed) return; // every verify command passed — evidence is in
+    failDetail = `\n\nVerify command (${failed.cmd}) exited ${failed.status}:\n`
+      + c.trunc(failed.out, 1500);
   } else {
     // Fixed path keyed by HEAD commit (not session id) so the verify step can
     // write it without knowing its own session id; freshness comes from the
@@ -62,7 +72,7 @@ c.run((input) => {
   }
 
   // Block cap so we never loop forever.
-  const maxBlocks = Number(c.envc('STOP_GATE_MAX_BLOCKS', src)) || 3;
+  const maxBlocks = Number(sg.maxBlocks) || 3;
   const capFile = path.join(root, '.claude', 'state', `stop-blocks-${sid}`);
   let blocks = 0;
   try { blocks = Number(fs.readFileSync(capFile, 'utf8')) || 0; } catch { /* first block */ }
@@ -77,13 +87,13 @@ c.run((input) => {
     return;
   }
 
-  const custom = c.envc('STOP_GATE_MESSAGE', src);
+  const custom = typeof sg.message === 'string' ? sg.message : '';
   let message;
   if (custom) {
     message = fill(custom);
-  } else if (verifyCmd) {
-    message = `Cannot finish: the project's stop-gate verify command has not passed for HEAD (${head}). `
-      + 'Make it pass honestly before stopping. Never weaken or edit tests to go green.';
+  } else if (cmds.length) {
+    message = `Cannot finish: the project's stop-gate verify commands have not all passed for HEAD (${head}). `
+      + 'Make them pass honestly before stopping. Never weaken or edit tests to go green.';
   } else {
     message = `Stage 2 cannot finish: verify-acceptance has not produced passing evidence for HEAD (${head}). `
       + 'Run verify-acceptance (or the chimera-verifier agent), confirm every acceptance criterion maps '

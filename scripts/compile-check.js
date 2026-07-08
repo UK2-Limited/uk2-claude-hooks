@@ -3,15 +3,15 @@
 // PostToolUse (Edit|Write|MultiEdit): compile/syntax-check the just-edited
 // file, feeding any error straight back to Claude.
 //
-// Checks are configurable per project as numbered steps in
-// .claude/validation/hooks.env (see hooks.env.example): each step is a
+// Checks are configurable per project as the compileCheck.steps array in
+// .claude/validation/hooks.json (see hooks.json.example): each step is a
 // file-match regex plus a shell command with {file}/{root}/{devenv}
-// placeholders, with optional PRECHECK (non-zero exit -> skip quietly),
-// ERROR_RE (fail on output match even at exit 0), CWD and TIMEOUT_MS.
-// With no steps configured this falls back to the original Chimera
+// placeholders, with optional precheck (non-zero exit -> skip quietly),
+// errorRe (fail on output match even at exit 0), cwd and timeoutMs.
+// With no steps key configured this falls back to the original Chimera
 // behaviour: `perl -c` inside the docker-compose `api` container for
 // *.pm/*.pl, skipping quietly (failing open) when that container isn't
-// running.
+// running. An explicit empty steps array means "no checks".
 
 const { execFileSync } = require('node:child_process');
 const c = require('./lib/common.js');
@@ -41,23 +41,26 @@ function sh(cmd, cwd, timeout) {
   }
 }
 
-// Numbered steps: UK2_COMPILE_CHECK_<n>_CMD plus optional _MATCH, _CWD,
-// _PRECHECK, _ERROR_RE, _TIMEOUT_MS. Gaps in the numbering are fine.
-function loadSteps(src) {
+// compileCheck.steps entries: cmd (required) plus optional match, cwd,
+// precheck, errorRe, timeoutMs. Step numbers are 1-based array positions.
+function normalizeSteps(raw) {
   const steps = [];
-  for (let n = 1; n <= 20; n += 1) {
-    const cmd = c.envc(`COMPILE_CHECK_${n}_CMD`, src);
-    if (!cmd) continue;
+  raw.forEach((s, i) => {
+    const n = i + 1;
+    if (!s || typeof s !== 'object' || typeof s.cmd !== 'string' || !s.cmd) {
+      process.stderr.write(`uk2-claude-hooks: compile-check step ${n}: missing cmd — step skipped\n`);
+      return;
+    }
     steps.push({
       n,
-      cmd,
-      match: c.envc(`COMPILE_CHECK_${n}_MATCH`, src),
-      cwd: c.envc(`COMPILE_CHECK_${n}_CWD`, src),
-      precheck: c.envc(`COMPILE_CHECK_${n}_PRECHECK`, src),
-      errorRe: c.envc(`COMPILE_CHECK_${n}_ERROR_RE`, src),
-      timeoutMs: Number(c.envc(`COMPILE_CHECK_${n}_TIMEOUT_MS`, src)) || 60000,
+      cmd: s.cmd,
+      match: typeof s.match === 'string' ? s.match : '',
+      cwd: typeof s.cwd === 'string' ? s.cwd : '',
+      precheck: typeof s.precheck === 'string' ? s.precheck : '',
+      errorRe: typeof s.errorRe === 'string' ? s.errorRe : '',
+      timeoutMs: Number(s.timeoutMs) || 60000,
     });
-  }
+  });
   return steps;
 }
 
@@ -143,10 +146,11 @@ c.run((input) => {
   if (!filePath) return;
   const rel = c.relPath(String(filePath));
 
-  const src = c.hooksConfig();
-  if (c.envc('COMPILE_CHECK_DISABLE', src)) return;
+  const cfg = c.hooksConfig();
+  if (cfg === null) return; // broken hooks.json — fail open, never block
+  const cc = cfg.compileCheck || {};
+  if (cc.disable || c.envc('COMPILE_CHECK_DISABLE')) return;
 
-  const steps = loadSteps(src);
-  if (steps.length) runConfigured(input, rel, steps);
+  if (Array.isArray(cc.steps)) runConfigured(input, rel, normalizeSteps(cc.steps));
   else runLegacy(input, rel);
 });

@@ -7,24 +7,23 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { envc, parseEnvFile, shipConfigFile, shipSpoolFile } = require('./common.js');
+const { envc, shipConfigFile, shipSpoolFile } = require('./common.js');
 
-// null when shipping is disabled/unconfigured. File values override process
-// env (matching the bash version, which sourced the file last); UK2_/CHIMERA_
-// aliasing applies to both.
+// null when shipping is disabled/unconfigured: config.json absent or
+// malformed, "disable" set in it, UK2_/CHIMERA_TELEMETRY_DISABLE in the
+// environment, or no esUrl.
 function loadShipConfig() {
-  let fileVars;
-  try { fileVars = parseEnvFile(shipConfigFile()); } catch { return null; }
-  const src = { ...process.env, ...fileVars };
-  if (envc('TELEMETRY_DISABLE', src)) return null;
-  const url = envc('TELEMETRY_ES_URL', src);
-  if (!url) return null;
+  if (envc('TELEMETRY_DISABLE')) return null;
+  let cfg;
+  try { cfg = JSON.parse(fs.readFileSync(shipConfigFile(), 'utf8')); } catch { return null; }
+  if (!cfg || typeof cfg !== 'object' || cfg.disable) return null;
+  if (!cfg.esUrl || typeof cfg.esUrl !== 'string') return null;
   return {
-    url: url.replace(/\/+$/, ''),
-    index: envc('TELEMETRY_ES_INDEX', src) || 'claude-telemetry',
-    apiKey: envc('TELEMETRY_ES_API_KEY', src),
-    cfId: envc('TELEMETRY_CF_CLIENT_ID', src),
-    cfSecret: envc('TELEMETRY_CF_CLIENT_SECRET', src),
+    url: cfg.esUrl.replace(/\/+$/, ''),
+    index: cfg.esIndex || 'claude-telemetry',
+    apiKey: cfg.esApiKey || '',
+    cfId: cfg.cfClientId || '',
+    cfSecret: cfg.cfClientSecret || '',
   };
 }
 
@@ -100,4 +99,4 @@ if (require.main === module) {
   })().finally(() => process.exit(0));
 }
 
-module.exports = { parseEnvFile, loadShipConfig, shipOne, spoolLine, flushSpool };
+module.exports = { loadShipConfig, shipOne, spoolLine, flushSpool };

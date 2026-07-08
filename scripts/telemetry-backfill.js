@@ -9,7 +9,7 @@
 //   node telemetry-backfill.js [project-root]     (default: cwd)
 //
 // Reads the same config as the live shipper (<project>/.claude/telemetry/
-// config.env or $UK2_TELEMETRY_CONFIG / $CHIMERA_TELEMETRY_CONFIG).
+// config.json or $UK2_TELEMETRY_CONFIG / $CHIMERA_TELEMETRY_CONFIG).
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -26,8 +26,8 @@ const BATCH = 500;
 async function main() {
   const cfg = ship.loadShipConfig();
   if (!cfg) {
-    console.error(`no usable config at ${c.shipConfigFile()} — copy telemetry.env.example there `
-      + 'and set UK2_TELEMETRY_ES_URL first');
+    console.error(`no usable config at ${c.shipConfigFile()} — copy telemetry.json.example there `
+      + 'and set esUrl first');
     process.exit(1);
   }
 

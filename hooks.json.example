@@ -1,0 +1,36 @@
+{
+  "compileCheck": {
+    "disable": false,
+    "steps": [
+      {
+        "match": "\\.(pm|pl)$",
+        "cwd": "{devenv}",
+        "precheck": "docker compose ps api 2>/dev/null | grep -qiE 'up|running'",
+        "cmd": "docker compose exec -T api perl -Ilib -c {file}"
+      },
+      {
+        "match": "\\.tsx?$",
+        "cmd": "npx tsc --noEmit",
+        "timeoutMs": 120000
+      },
+      {
+        "match": "\\.py$",
+        "cmd": "python -m pyflakes {file} 2>&1 || true",
+        "errorRe": "undefined name|invalid syntax"
+      }
+    ]
+  },
+  "testIntegrity": {
+    "disable": false,
+    "fileRe": "\\.test\\.[jt]sx?$",
+    "assertRe": "\\bexpect\\s*\\(",
+    "skipRe": "\\b(it|test|describe)\\.skip\\b|\\bxit\\b"
+  },
+  "stopGate": {
+    "disable": false,
+    "cmds": ["npm test", "npm run lint"],
+    "timeoutMs": 120000,
+    "maxBlocks": 3,
+    "message": "Tests must pass before stopping (HEAD {head})."
+  }
+}

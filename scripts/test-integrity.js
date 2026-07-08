@@ -4,12 +4,13 @@
 // of pre-existing test assertions. Hard-deny in agent/CI mode; warn-only
 // locally.
 //
-// The Perl-flavoured defaults below are overridable per project via
-// .claude/validation/hooks.env (see hooks.env.example):
-//   UK2_TEST_INTEGRITY_FILE_RE    which repo-relative paths count as tests
-//   UK2_TEST_INTEGRITY_ASSERT_RE  assertion pattern, counted before/after (flag g)
-//   UK2_TEST_INTEGRITY_SKIP_RE    skip/TODO/commented-assertion pattern (flags im)
-//   UK2_TEST_INTEGRITY_DISABLE    turn the hook off entirely
+// The Perl-flavoured defaults below are overridable per project via the
+// testIntegrity block in .claude/validation/hooks.json (see
+// hooks.json.example):
+//   fileRe    which repo-relative paths count as tests
+//   assertRe  assertion pattern, counted before/after (flag g)
+//   skipRe    skip/TODO/commented-assertion pattern (flags im)
+//   disable   turn the hook off (UK2_TEST_INTEGRITY_DISABLE env var also works)
 
 const c = require('./lib/common.js');
 
@@ -26,11 +27,10 @@ function isTestDefault(rel) {
 // undefined = key not configured (use the default); null = configured but the
 // pattern doesn't compile — the caller must fail open, not fall back silently
 // to defaults meant for a different language.
-function cfgRe(src, key, flags) {
-  const pat = c.envc(key, src);
-  if (!pat) return undefined;
+function cfgRe(pat, name, flags) {
+  if (typeof pat !== 'string' || !pat) return undefined;
   try { return new RegExp(pat, flags); } catch {
-    process.stderr.write(`uk2-claude-hooks: test-integrity: invalid ${key} regex — check skipped\n`);
+    process.stderr.write(`uk2-claude-hooks: test-integrity: invalid ${name} regex — check skipped\n`);
     return null;
   }
 }
@@ -42,16 +42,18 @@ c.run((input) => {
   if (!filePath) return;
   const rel = c.relPath(String(filePath));
 
-  const src = c.hooksConfig();
-  if (c.envc('TEST_INTEGRITY_DISABLE', src)) return;
+  const cfg = c.hooksConfig();
+  if (cfg === null) return; // broken hooks.json — fail open, never deny
+  const ti = cfg.testIntegrity || {};
+  if (ti.disable || c.envc('TEST_INTEGRITY_DISABLE')) return;
 
   // Only act on test / fixture files.
-  const fileRe = cfgRe(src, 'TEST_INTEGRITY_FILE_RE', '');
+  const fileRe = cfgRe(ti.fileRe, 'fileRe', '');
   if (fileRe === null) return;
   if (fileRe ? !fileRe.test(rel) : !isTestDefault(rel)) return;
 
-  const assertRe = cfgRe(src, 'TEST_INTEGRITY_ASSERT_RE', 'g');
-  const skipRe = cfgRe(src, 'TEST_INTEGRITY_SKIP_RE', 'im');
+  const assertRe = cfgRe(ti.assertRe, 'assertRe', 'g');
+  const skipRe = cfgRe(ti.skipRe, 'skipRe', 'im');
   if (assertRe === null || skipRe === null) return;
   const aRe = assertRe || DEFAULT_ASSERT_RE;
   const sRe = skipRe || DEFAULT_SKIP_RE;

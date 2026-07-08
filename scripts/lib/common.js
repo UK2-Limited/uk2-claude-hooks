@@ -5,8 +5,9 @@
 // error and exits 0.
 //
 // Env vars use the UK2_ prefix; the legacy CHIMERA_ prefix is honoured as a
-// fallback everywhere (including keys parsed out of config.env) so existing
-// Chimera telemetry configs keep working unchanged.
+// fallback everywhere. Config FILES are plain JSON (hooks.json / config.json,
+// unprefixed camelCase keys) — the Chimera-era shell-style .env files are
+// intentionally no longer read.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -14,29 +15,23 @@ const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
 
 // envc('TELEMETRY_ES_URL') -> UK2_TELEMETRY_ES_URL, else CHIMERA_TELEMETRY_ES_URL, else ''.
-function envc(key, source = process.env) {
-  const v = source[`UK2_${key}`];
+function envc(key) {
+  const v = process.env[`UK2_${key}`];
   if (v !== undefined && v !== '') return v;
-  const legacy = source[`CHIMERA_${key}`];
+  const legacy = process.env[`CHIMERA_${key}`];
   return legacy === undefined ? '' : legacy;
 }
 
-// config.env / hooks.env are shell-style KEY="value" files (same format the
-// bash hooks used); parsed without executing anything.
-function parseEnvFile(file) {
-  const out = {};
-  for (const raw of fs.readFileSync(file, 'utf8').split('\n')) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    const m = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (!m) continue;
-    let val = m[2].trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    out[m[1]] = val;
-  }
-  return out;
+// hooks.json / config.json are plain JSON objects. Absent file -> {} (built-in
+// defaults apply); present but unreadable/invalid -> null (callers must skip
+// entirely — falling back to defaults could block on our own parse failure).
+function readJsonConfig(file) {
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return {}; }
+  try {
+    const cfg = JSON.parse(raw);
+    return cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? cfg : null;
+  } catch { return null; }
 }
 
 // --- Paths ---
@@ -44,17 +39,27 @@ function repoRoot() { return process.env.CLAUDE_PROJECT_DIR || process.cwd(); }
 function devenvDir() { return envc('DEVENV_DIR') || path.join(repoRoot(), '..'); }
 
 // --- Behavioural gate config (compile-check / test-integrity / stop gate) ---
-// Optional per-project file, meant to be committed by the consuming repo (no
-// secrets in it). Every key also works as a plain env var; file values
-// override the environment (same rule as the telemetry config.env), and the
-// UK2_/CHIMERA_ aliasing applies to both.
+// Optional per-project JSON file, meant to be committed by the consuming repo
+// (no secrets in it). Returns the parsed object ({} when absent — built-in
+// defaults apply) or null when the file is present but broken (gates must
+// skip). Only the *_DISABLE kill switches remain readable as env vars.
 function hooksConfigFile() {
-  return envc('HOOKS_CONFIG') || path.join(repoRoot(), '.claude', 'validation', 'hooks.env');
+  return envc('HOOKS_CONFIG') || path.join(repoRoot(), '.claude', 'validation', 'hooks.json');
 }
 function hooksConfig() {
-  let fileVars = {};
-  try { fileVars = parseEnvFile(hooksConfigFile()); } catch { /* no file — env only */ }
-  return { ...process.env, ...fileVars };
+  const file = hooksConfigFile();
+  const cfg = readJsonConfig(file);
+  if (cfg === null) {
+    process.stderr.write(`uk2-claude-hooks: invalid JSON in ${file} — gates skipped\n`);
+    return null;
+  }
+  if (!fs.existsSync(file)) {
+    const legacy = path.join(repoRoot(), '.claude', 'validation', 'hooks.env');
+    if (fs.existsSync(legacy)) {
+      process.stderr.write(`uk2-claude-hooks: ${legacy} is no longer read — convert it to hooks.json (see README)\n`);
+    }
+  }
+  return cfg;
 }
 
 function relPath(p) {
@@ -143,6 +148,19 @@ function telemetryUser() {
 function telemetryHost() {
   try { return os.hostname().split('.')[0] || 'unknown'; } catch { return 'unknown'; }
 }
+// "org/repo" from the origin remote (checkout-name agnostic, so the shared
+// index aggregates across machines); folder basename when there is no remote
+// or no git repo at all.
+function telemetryRepo() {
+  const url = gitOut(['remote', 'get-url', 'origin']);
+  if (url) {
+    // git@host:org/repo.git | https://host/org/repo.git | ssh://git@host:port/org/repo.git
+    const m = url.replace(/\.git\/?$/, '')
+      .match(/^(?:[a-z+]+:\/\/)?(?:[^@/]+@)?[^:/]+(?::\d+)?[:/](.+)$/i);
+    if (m && m[1]) return m[1].replace(/^\/+/, '');
+  }
+  return path.basename(repoRoot());
+}
 
 function isoNow() { return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'); }
 
@@ -170,7 +188,7 @@ function transcriptTail(file, n = 200) {
 
 // --- Telemetry (append-only JSONL, never blocks) ---
 function shipConfigFile() {
-  return envc('TELEMETRY_CONFIG') || path.join(repoRoot(), '.claude', 'telemetry', 'config.env');
+  return envc('TELEMETRY_CONFIG') || path.join(repoRoot(), '.claude', 'telemetry', 'config.json');
 }
 function shipSpoolFile() {
   return envc('TELEMETRY_SPOOL') || path.join(repoRoot(), '.claude', 'telemetry', 'unshipped.jsonl');
@@ -186,6 +204,7 @@ function logEvent(input, event, extra = {}) {
       event,
       session_id: sid,
       branch: gitOut(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown',
+      repo: telemetryRepo(),
       user: telemetryUser(),
       host: telemetryHost(),
       issue: issue || null,
@@ -207,7 +226,13 @@ function logEvent(input, event, extra = {}) {
 function shipEvent(line) {
   try {
     if (envc('TELEMETRY_DISABLE')) return;
-    if (!fs.existsSync(shipConfigFile())) return;
+    if (!fs.existsSync(shipConfigFile())) {
+      const legacy = path.join(repoRoot(), '.claude', 'telemetry', 'config.env');
+      if (fs.existsSync(legacy)) {
+        process.stderr.write(`uk2-claude-hooks: ${legacy} is no longer read — convert it to config.json (see README)\n`);
+      }
+      return;
+    }
     spawn(process.execPath, [path.join(__dirname, 'ship.js'), line], {
       detached: true, stdio: 'ignore', cwd: repoRoot(),
     }).unref();
@@ -223,9 +248,9 @@ function run(fn) {
 }
 
 module.exports = {
-  envc, parseEnvFile, repoRoot, devenvDir, hooksConfigFile, hooksConfig,
+  envc, readJsonConfig, repoRoot, devenvDir, hooksConfigFile, hooksConfig,
   relPath, readInput, get, trunc, isAgentMode,
-  deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, isoNow,
+  deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, telemetryRepo, isoNow,
   currentIssue, transcriptTail, shipConfigFile, shipSpoolFile, logEvent,
   shipEvent, run,
 };
