@@ -1,0 +1,41 @@
+{
+  "dangerousBash": {
+    "disable": false
+  },
+  "protectedPaths": {
+    "disable": false,
+    "deny": [
+      "**/.env",
+      "**/secrets/**",
+      ".claude/telemetry/config.json"
+    ]
+  },
+  "compileCheck": {
+    "disable": false,
+    "steps": [
+      {
+        "match": "\\.js$",
+        "cmd": "node --check {file}",
+        "timeoutMs": 15000
+      },
+      {
+        "match": "\\.json$",
+        "cmd": "node -e \"JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8'))\" {file}",
+        "timeoutMs": 15000
+      }
+    ]
+  },
+  "testIntegrity": {
+    "disable": false,
+    "fileRe": "^test/",
+    "assertRe": "\\b(check|wantDeny|wantBlock|wantAllow|wantCtx)\\s*\\(",
+    "skipRe": "//\\s*(check|wantDeny|wantBlock|wantAllow|wantCtx)\\s*\\("
+  },
+  "stopGate": {
+    "disable": false,
+    "cmds": ["node test/run.js"],
+    "timeoutMs": 120000,
+    "maxBlocks": 3,
+    "message": "The self-test suite must pass before stopping (HEAD {head}). Run `node test/run.js` and fix the failures."
+  }
+}
