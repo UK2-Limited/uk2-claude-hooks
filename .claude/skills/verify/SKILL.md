@@ -14,10 +14,7 @@ claude plugin validate .  # manifest sanity
 
 ## Reading the results
 
-- `test/run.js` must end `RESULT: N passed, 0 failed, 3 skipped`.
-  - The **3 skips are intentional** — they are the `protected-paths` deny tests, skipped
-    because `protected-paths.js` is deliberately disabled (early `process.exit(0)`).
-    Do not "fix" the skips; they re-enable together with the hook.
+- `test/run.js` must end `RESULT: N passed, 0 failed, 0 skipped`.
   - Any `fail` is a real failure — report it with the output, don't rationalize it.
 - `claude plugin validate .` is expected to warn about the **missing `version` field** —
   that is deliberate (versionless → every commit ships as an update). Any *other*

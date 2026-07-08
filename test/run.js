@@ -65,7 +65,7 @@ function run(script, payload, extraEnv = {}) {
     'CHIMERA_TELEMETRY_SPOOL', 'UK2_DEVENV_DIR', 'CHIMERA_DEVENV_DIR']) delete env[k];
   // Ditto for any ambient gate config (config-path vars and kill switches).
   for (const k of Object.keys(env)) {
-    if (/^(UK2|CHIMERA)_(HOOKS_CONFIG|COMPILE_CHECK|TEST_INTEGRITY|STOP_GATE)/.test(k)) delete env[k];
+    if (/^(UK2|CHIMERA)_(HOOKS_CONFIG|COMPILE_CHECK|TEST_INTEGRITY|STOP_GATE|PROTECTED_PATHS)/.test(k)) delete env[k];
   }
   Object.assign(env, extraEnv);
   const r = spawnSync(process.execPath, [path.join(SCRIPTS, script)], {
@@ -112,12 +112,38 @@ async function waitSpoolStable(timeoutMs = 10000) {
 }
 
 (async () => {
-  console.log('== protected-paths (hook disabled — re-enable these together with protected-paths.js) ==');
-  skip('deny conf/production');
-  skip('deny **/.env');
-  skip('deny **/secrets/**');
-  run('protected-paths.js', { session_id: SID, tool_name: 'Write', tool_input: { file_path: 'conf/production/all/x.yml' } });
-  wantAllow('disabled hook allows everything');
+  console.log('== protected-paths ==');
+  const ppEdit = (fp, tool = 'Write') => ({ session_id: SID, tool_name: tool, tool_input: { file_path: fp } });
+  const ppRun = (payload, extra = {}) => run('protected-paths.js', payload, { UK2_HOOKS_CONFIG: HOOKSJSON, ...extra });
+
+  // No protectedPaths config: inert. The scratch project HAS a legacy
+  // protected-paths.txt denying this very path — proves the txt is dead.
+  run('protected-paths.js', ppEdit('conf/production/all/x.yml'));
+  wantAllow('inert without protectedPaths config (legacy txt no longer read)');
+  check('txt migration nag on stderr', ERR.includes('no longer read'));
+
+  writeHooksCfg({ protectedPaths: {
+    deny: ['conf/production/', '**/.env', '**/secrets/**'],
+    warn: ['database/structure/'],
+  } });
+  ppRun(ppEdit('conf/production/all/x.yml')); wantDeny('deny conf/production');
+  ppRun(ppEdit('service/.env')); wantDeny('deny **/.env');
+  ppRun(ppEdit('app/secrets/key.pem')); wantDeny('deny **/secrets/**');
+  const pd = lastEvent('protected_deny');
+  check('protected_deny logged with path+rule+tool',
+    pd && pd.path === 'app/secrets/key.pem' && pd.rule === '**/secrets/**' && pd.tool === 'Write');
+  ppRun({ session_id: SID, tool_name: 'NotebookEdit', tool_input: { notebook_path: 'conf/production/nb.ipynb' } });
+  wantDeny('deny follows notebook_path too');
+  ppRun(ppEdit('database/structure/widgets.sql'));
+  wantAllow('warn rule allows');
+  check('warn advisory on stderr', ERR.includes('WARNING'));
+  check('protected_warn logged', lastEvent('protected_warn') !== null);
+  ppRun(ppEdit('lib/Foo.pm')); wantAllow('unmatched path allowed');
+  ppRun(ppEdit('conf/production/x.yml'), { UK2_PROTECTED_PATHS_DISABLE: '1' });
+  wantAllow('UK2_PROTECTED_PATHS_DISABLE turns gate off');
+  writeHooksCfg({ protectedPaths: { disable: true, deny: ['conf/production/'] } });
+  ppRun(ppEdit('conf/production/x.yml')); wantAllow('protectedPaths.disable turns gate off');
+  fs.rmSync(HOOKSJSON, { force: true });
 
   console.log('== block-dangerous-bash ==');
   const bash = (command) => ({ session_id: SID, tool_name: 'Bash', tool_input: { command } });
@@ -132,6 +158,40 @@ async function waitSpoolStable(timeoutMs = 10000) {
   run('block-dangerous-bash.js', bash('rm -rf /'), { UK2_ALLOW_DANGEROUS: '1' }); wantAllow('human override allows locally');
   run('block-dangerous-bash.js', bash('rm -rf /'), { UK2_ALLOW_DANGEROUS: '1', UK2_AGENT_MODE: 'implement' });
   wantDeny('override ignored in agent mode');
+
+  console.log('== block-dangerous-bash (configured rules) ==');
+  const dbRun = (command, extra = {}) => run('block-dangerous-bash.js', bash(command), { UK2_HOOKS_CONFIG: HOOKSJSON, ...extra });
+  writeHooksCfg({ dangerousBash: { rules: [
+    { reason: 'no shutdowns', match: ['(^|\\s)shutdown(\\s|$)'] },
+    { reason: 'no prod deletes', match: ['DELETE\\s+FROM'], noMatch: ['test'] },
+  ] } });
+  dbRun('sudo shutdown now'); wantDeny('configured rule denies');
+  check('deny carries configured reason', OUT.includes('no shutdowns'));
+  dbRun('mysql -e "DELETE FROM users"'); wantDeny('match+noMatch rule denies');
+  dbRun('mysql -e "DELETE FROM test_users"'); wantAllow('noMatch exempts');
+  dbRun('git push --force origin main'); wantAllow('configured rules replace built-ins');
+  dbRun('sudo shutdown now', { UK2_ALLOW_DANGEROUS: '1' }); wantAllow('human override still applies with config');
+  const dbe = lastEvent('dangerous_bash_blocked');
+  check('dangerous_bash_blocked carries configured reason', dbe && dbe.reason === 'no prod deletes');
+
+  writeHooksCfg({ dangerousBash: { rules: [
+    { reason: 'broken', match: ['('] },
+    { reason: 'no shutdowns', match: ['shutdown'] },
+  ] } });
+  dbRun('shutdown now'); wantDeny('invalid regex skips that rule only');
+  check('invalid-rule note on stderr', ERR.includes('rule 1'));
+
+  writeHooksCfg({ dangerousBash: { disable: true } });
+  dbRun('rm -rf /'); wantAllow('dangerousBash.disable turns gate off');
+
+  // hooks.json.example spells out the built-in defaults — it must not drift.
+  fs.copyFileSync(path.join(ROOT, 'hooks.json.example'), HOOKSJSON);
+  dbRun('rm -rf /'); wantDeny('example config: rm floor matches built-in');
+  dbRun('git push --force origin master'); wantDeny('example config: force-push still denied');
+  dbRun('mysql -e "TRUNCATE TABLE test_widgets"'); wantAllow('example config: TRUNCATE test still allowed');
+  ppRun(ppEdit('conf/production/all/x.yml')); wantDeny('example config: deny conf/production');
+  ppRun(ppEdit('database/structure/widgets.sql')); wantAllow('example config: warn rule allows');
+  fs.rmSync(HOOKSJSON, { force: true });
 
   console.log('== test-integrity ==');
   const editDrop = {
@@ -332,6 +392,10 @@ async function waitSpoolStable(timeoutMs = 10000) {
   fs.rmSync(CAP, { force: true });
   run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSJSON });
   wantAllow('stop gate skips on malformed hooks.json');
+  ppRun(ppEdit('conf/production/x.yml'));
+  wantAllow('protected-paths skips on malformed hooks.json');
+  dbRun('rm -rf /');
+  wantDeny('dangerous-bash keeps its built-in floor on malformed hooks.json');
   fs.rmSync(HOOKSJSON, { force: true });
   fs.rmSync(CAP, { force: true });
 

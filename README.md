@@ -11,9 +11,9 @@ Elasticsearch never blocks a tool call. Only explicit gate decisions (deny/block
 
 | Hook | Event | What it does |
 |---|---|---|
-| `block-dangerous-bash` | PreToolUse (Bash) | Hard floor under the permission allowlist: denies `rm -rf /~/.`, `git push --force`, `DROP/TRUNCATE` on non-test DBs, `docker compose down -v`. Human override: `UK2_ALLOW_DANGEROUS=1` (ignored in agent/CI mode). |
+| `block-dangerous-bash` | PreToolUse (Bash) | Hard floor under the permission allowlist: denies `rm -rf /~/.`, `git push --force`, `DROP/TRUNCATE` on non-test DBs, `docker compose down -v`. Rule set replaceable via `hooks.json` (defaults spelled out in `hooks.json.example`). Human override: `UK2_ALLOW_DANGEROUS=1` (ignored in agent/CI mode). |
 | `test-integrity` | PreToolUse (edits) | Flags edits that weaken test files (assertion count drops, introduced SKIP/TODO). Hard-deny in agent/CI mode, warn-only locally. Perl heuristics by default; file/assertion/skip regexes overridable via `hooks.json`. |
-| `protected-paths` | PreToolUse (edits) | Policy-driven write protection from `<project>/.claude/validation/protected-paths.txt`. **Currently disabled** (early exit, parity with the Chimera branch) — re-enable together with the skipped tests in `test/run.js`. |
+| `protected-paths` | PreToolUse (edits) | Policy-driven write protection: `deny` (hard deny, holds under bypassPermissions) and `warn` (allow + advisory + telemetry) path patterns from `protectedPaths` in `hooks.json`. **Inert until configured** — with no `protectedPaths` key it does nothing (parity with the Chimera branch, where this gate shipped disabled). The Chimera-era `protected-paths.txt` file is no longer read. |
 | `compile-check` | PostToolUse (edits) | Compile/syntax-checks the edited file and feeds errors back to Claude. Configurable as an array of command steps (file-match regex + shell command) via `hooks.json`; with no steps configured it defaults to `perl -c` for `.pm`/`.pl` inside the docker-compose `api` container, skipping quietly when no container is running (i.e. in non-Chimera repos). |
 | `telemetry-posttool` | PostToolUse (*) | Emits the per-call telemetry events (see schema below). |
 | `stop-require-evidence` | Stop | Agent/CI mode only: refuses to finish until `.claude/state/verify.json` shows passing evidence for the current HEAD — or, via `hooks.json`, until every project-defined verify command exits 0. Block message and cap (default 3) configurable. |
@@ -54,13 +54,23 @@ To auto-enable for a whole team, a consuming repo can add to its `.claude/settin
 
 ## Configure the gates (`hooks.json`)
 
-The three Chimera-flavoured gates take per-project config from
+The gates take per-project config from
 `<project>/.claude/validation/hooks.json` (copy `hooks.json.example`; commit it — no
-secrets in it; override the path with `UK2_HOOKS_CONFIG`). Without the file, all three keep
-their built-in Chimera behaviour.
+secrets in it; override the path with `UK2_HOOKS_CONFIG`). Without the file, every gate
+keeps its built-in Chimera behaviour (and `protected-paths` stays off).
 
 ```json
 {
+  "dangerousBash": {
+    "rules": [
+      { "reason": "no writes to the prod bucket",
+        "match": ["aws\\s+s3\\s+(rm|sync|cp)", "s3://prod-"] }
+    ]
+  },
+  "protectedPaths": {
+    "deny": ["conf/production/", "**/.env", "**/secrets/**"],
+    "warn": ["database/structure/"]
+  },
   "compileCheck": {
     "steps": [
       { "match": "\\.tsx?$", "cmd": "npx tsc --noEmit", "timeoutMs": 120000 },
@@ -78,6 +88,24 @@ their built-in Chimera behaviour.
   }
 }
 ```
+
+**dangerousBash** — `rules` is an array checked against every statement of the command
+(compound commands are split on `;`/`&&`/`||`/`|`/newline first). Per rule: `reason`
+(required, shown in the deny), `match` (required; case-insensitive regexes that must ALL
+hit the same statement), `noMatch` (none may hit — e.g. exempting `test` databases). A
+configured `rules` array **replaces** the built-ins, so start from the defaults in
+`hooks.json.example` and add to them. An invalid rule is skipped with a stderr note; the
+rest still apply. Deviation from the other gates: a *malformed* `hooks.json` does not
+switch this gate off — the built-in rules keep applying, so a parse error can never drop
+the floor. There is deliberately no env kill switch; `UK2_ALLOW_DANGEROUS=1` is the local
+human override (ignored in agent/CI mode).
+
+**protectedPaths** — `deny` and `warn` are arrays of path patterns matched against the
+repo-relative path of every `Edit`/`Write`/`MultiEdit`/`NotebookEdit`. `deny` hard-denies
+(holds under bypassPermissions); `warn` allows with a stderr advisory + telemetry flag.
+Pattern semantics: trailing `/` = directory prefix, leading `**/` = any depth, `*` is a
+glob that crosses `/`. Without a `protectedPaths` key the hook does nothing; a leftover
+Chimera `protected-paths.txt` is not read (stderr nag only).
 
 **compileCheck** — `steps` is an array run in order for every matching edited file; the
 first failing step blocks with the command's output. Adding another check is adding another
@@ -102,11 +130,13 @@ that command's output; the rest are not run. `{root}`/`{head}` placeholders. Oth
 
 Each gate also takes `"disable": true` in its block, or an environment kill switch that
 works without editing the committed file (handy in CI): `UK2_COMPILE_CHECK_DISABLE`,
-`UK2_TEST_INTEGRITY_DISABLE`, `UK2_STOP_GATE_DISABLE`.
+`UK2_TEST_INTEGRITY_DISABLE`, `UK2_STOP_GATE_DISABLE`, `UK2_PROTECTED_PATHS_DISABLE`
+(`dangerousBash` has no env kill switch by design — see above).
 
 Everything stays fail-open: a missing or malformed `hooks.json`, invalid regex, or a
 command that cannot run (missing binary, timeout) skips the check with a stderr note —
-only a real non-zero exit (or `errorRe` match) blocks.
+only a real non-zero exit (or `errorRe` match) blocks. Sole exception: `dangerousBash`
+falls back to its built-in rules on a malformed `hooks.json`.
 
 ## Configure telemetry shipping
 
@@ -126,13 +156,14 @@ automatically on later events, or in bulk via the backfill CLI.
 Knobs: `UK2_TELEMETRY_CONFIG` / `UK2_TELEMETRY_SPOOL` / `UK2_HOOKS_CONFIG` (override
 paths), `UK2_AGENT_MODE` (enables the hard gates; `CI=true` does too), `UK2_ISSUE` (issue
 attribution), `UK2_DEVENV_DIR` (where docker-compose lives for compile-check's default
-step; default `<project>/..`), plus the three gate kill switches above.
+step; default `<project>/..`), plus the four gate kill switches above.
 
 ## Migrating from `hooks.env` / `config.env`
 
 **Breaking change**: the plugin no longer reads the shell-style
 `.claude/validation/hooks.env` or `.claude/telemetry/config.env` files — config files are
-JSON now. Until converted, the gates fall back to their built-in defaults and telemetry
+JSON now. The same applies to `.claude/validation/protected-paths.txt`: its deny/warn
+rules move into the `protectedPaths` block of `hooks.json`. Until converted, the gates fall back to their built-in defaults and telemetry
 shipping is off (local JSONL still accumulates and can be backfilled afterwards); hooks
 print a one-line stderr nag while a stale `.env` file is present. `UK2_*`/`CHIMERA_*`
 *environment variables* for mode, paths, and kill switches are unaffected.
@@ -146,6 +177,7 @@ print a one-line stderr nag while a stale `.env` file is present. `UK2_*`/`CHIME
 | `UK2_STOP_GATE_CMD` | `stopGate.cmds` (now an array — all must pass) |
 | `UK2_STOP_GATE_TIMEOUT_MS/_MAX_BLOCKS/_MESSAGE` | `stopGate.timeoutMs/maxBlocks/message` |
 | `UK2_STOP_GATE_DISABLE` | `stopGate.disable` (env var still works) |
+| `protected-paths.txt` lines (`deny:<pat>` / `warn:<pat>`) | `protectedPaths.deny[]` / `protectedPaths.warn[]` (same pattern semantics) |
 | `UK2_TELEMETRY_ES_URL/_ES_INDEX/_ES_API_KEY` | `esUrl` / `esIndex` / `esApiKey` in `config.json` |
 | `UK2_TELEMETRY_CF_CLIENT_ID/_SECRET` | `cfClientId` / `cfClientSecret` |
 | `UK2_TELEMETRY_DISABLE` | `disable` (env var still works) |

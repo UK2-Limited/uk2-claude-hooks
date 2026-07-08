@@ -44,8 +44,15 @@ read (see the migration section in README.md).
   migration nag when a stale `.env` file is found.
 - **Deterministic ship IDs.** Elasticsearch `_id` = sha1 of the JSON line, shared by the
   live shipper and the backfill CLI. Changing it breaks idempotent retries/dedupe.
-- `protected-paths.js` is **intentionally disabled** (early `process.exit(0)`), with its
-  3 deny tests skipped in `test/run.js` — re-enable both together.
+- `protected-paths.js` is **inert until configured** — it acts only when a
+  `protectedPaths` block exists in the consuming repo's `hooks.json` (keeping the default
+  behaviour of the disabled Chimera gate). The Chimera `protected-paths.txt` file is
+  intentionally not read (stderr migration nag only).
+- `block-dangerous-bash.js` must never lose its floor: a malformed `hooks.json` falls back
+  to the built-in rules (deliberate exception to the broken-config → skip convention), and
+  there is no env kill switch. A configured `dangerousBash.rules` array replaces the
+  built-ins — keep `hooks.json.example` in lockstep with `DEFAULT_RULES` (the
+  "example config" tests enforce this).
 
 ## Development commands
 

@@ -1,4 +1,42 @@
 {
+  "dangerousBash": {
+    "disable": false,
+    "rules": [
+      {
+        "reason": "recursive/forced 'rm' targeting a root / home / cwd / glob path",
+        "match": [
+          "(^|\\s)rm(\\s|$)",
+          "(^|\\s)-[a-z0-9]*r|--recursive",
+          "(^|\\s)-[a-z0-9]*f|--force",
+          "\\s(/|/\\*|~|~/|\\$HOME|\\.|\\.\\.|\\*)(\\s|$)"
+        ]
+      },
+      {
+        "reason": "'git push --force' rewrites remote history",
+        "match": ["git\\s+push", "--force([^-]|$)|--force-with-lease|(^|\\s)-f(\\s|$)"]
+      },
+      {
+        "reason": "DROP/TRUNCATE against a non-test database",
+        "match": ["DROP\\s+DATABASE|DROP\\s+TABLE|TRUNCATE\\s+TABLE"],
+        "noMatch": ["test"]
+      },
+      {
+        "reason": "'docker compose down -v' deletes named volumes (DB / object-storage data)",
+        "match": ["docker(-|\\s+)compose\\s+down", "-v(\\s|$)|--volumes"]
+      }
+    ]
+  },
+  "protectedPaths": {
+    "disable": false,
+    "deny": [
+      "conf/production/",
+      "**/.env",
+      "**/secrets/**"
+    ],
+    "warn": [
+      "database/structure/"
+    ]
+  },
   "compileCheck": {
     "disable": false,
     "steps": [
