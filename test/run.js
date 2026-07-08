@@ -594,7 +594,8 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('session_summary');
   check('session_summary total_tokens=465', ev && ev.total_tokens === 465 && ev.turns === 2);
   check('session_summary counts + identity', ev && ev.tool_failures >= 1
-    && ev.user === 'hooktest@uk2group.com' && typeof ev.wall_ms === 'number');
+    && ev.user === 'hooktest@uk2group.com' && ev.repo === 'uk2group/scratch-repo'
+    && typeof ev.wall_ms === 'number');
   check('session_summary appended to summaries.jsonl',
     events('session_summary', path.join(PROJ, '.claude', 'telemetry', 'summaries.jsonl')).length === 1);
 

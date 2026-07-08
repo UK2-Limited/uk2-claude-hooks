@@ -75,6 +75,7 @@ c.run(async (input) => {
     event: 'session_summary',
     session_id: sid,
     branch,
+    repo: c.telemetryRepo(),
     user: c.telemetryUser(),
     host: c.telemetryHost(),
     issue: issue || null,
