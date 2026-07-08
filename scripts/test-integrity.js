@@ -3,13 +3,37 @@
 // PreToolUse (Edit|Write|MultiEdit) on test/fixture files: flag/deny weakening
 // of pre-existing test assertions. Hard-deny in agent/CI mode; warn-only
 // locally.
+//
+// The Perl-flavoured defaults below are overridable per project via
+// .claude/validation/hooks.env (see hooks.env.example):
+//   UK2_TEST_INTEGRITY_FILE_RE    which repo-relative paths count as tests
+//   UK2_TEST_INTEGRITY_ASSERT_RE  assertion pattern, counted before/after (flag g)
+//   UK2_TEST_INTEGRITY_SKIP_RE    skip/TODO/commented-assertion pattern (flags im)
+//   UK2_TEST_INTEGRITY_DISABLE    turn the hook off entirely
 
 const c = require('./lib/common.js');
 
-const ASSERT_RE = /(^|[^A-Za-z0-9_])(ok|is|isnt|like|unlike|cmp_ok|is_deeply|isa_ok|can_ok|throws_ok|lives_ok|dies_ok|warning_is|done_testing)\s*\(/g;
-const SKIP_RE = /(\bskip_all\b|->\s*skip\b|#\s*TODO|\bplan\b[^;]*skip|^\s*#.*\b(ok|is|cmp_ok|is_deeply|isa_ok|like)\s*\()/im;
+const DEFAULT_ASSERT_RE = /(^|[^A-Za-z0-9_])(ok|is|isnt|like|unlike|cmp_ok|is_deeply|isa_ok|can_ok|throws_ok|lives_ok|dies_ok|warning_is|done_testing)\s*\(/g;
+const DEFAULT_SKIP_RE = /(\bskip_all\b|->\s*skip\b|#\s*TODO|\bplan\b[^;]*skip|^\s*#.*\b(ok|is|cmp_ok|is_deeply|isa_ok|like)\s*\()/im;
 
-function countAsserts(text) { return (text.match(ASSERT_RE) || []).length; }
+function isTestDefault(rel) {
+  return rel.endsWith('.t')
+    || rel.startsWith('t/') || rel.includes('/t/')
+    || (rel.includes('Test') && rel.endsWith('.pm'))
+    || /[Ff]ixtures/.test(rel);
+}
+
+// undefined = key not configured (use the default); null = configured but the
+// pattern doesn't compile — the caller must fail open, not fall back silently
+// to defaults meant for a different language.
+function cfgRe(src, key, flags) {
+  const pat = c.envc(key, src);
+  if (!pat) return undefined;
+  try { return new RegExp(pat, flags); } catch {
+    process.stderr.write(`uk2-claude-hooks: test-integrity: invalid ${key} regex — check skipped\n`);
+    return null;
+  }
+}
 
 c.run((input) => {
   const tool = c.get(input, 'tool_name');
@@ -18,12 +42,20 @@ c.run((input) => {
   if (!filePath) return;
   const rel = c.relPath(String(filePath));
 
+  const src = c.hooksConfig();
+  if (c.envc('TEST_INTEGRITY_DISABLE', src)) return;
+
   // Only act on test / fixture files.
-  const isTest = rel.endsWith('.t')
-    || rel.startsWith('t/') || rel.includes('/t/')
-    || (rel.includes('Test') && rel.endsWith('.pm'))
-    || /[Ff]ixtures/.test(rel);
-  if (!isTest) return;
+  const fileRe = cfgRe(src, 'TEST_INTEGRITY_FILE_RE', '');
+  if (fileRe === null) return;
+  if (fileRe ? !fileRe.test(rel) : !isTestDefault(rel)) return;
+
+  const assertRe = cfgRe(src, 'TEST_INTEGRITY_ASSERT_RE', 'g');
+  const skipRe = cfgRe(src, 'TEST_INTEGRITY_SKIP_RE', 'im');
+  if (assertRe === null || skipRe === null) return;
+  const aRe = assertRe || DEFAULT_ASSERT_RE;
+  const sRe = skipRe || DEFAULT_SKIP_RE;
+  const countAsserts = (text) => (text.match(aRe) || []).length;
 
   // Gather the "before" and "after" text for an assertion-density comparison.
   let oldText = '';
@@ -47,7 +79,7 @@ c.run((input) => {
 
   let weak = '';
   if (oldN > newN) weak = `assertion count dropped (${oldN} -> ${newN})`;
-  if (SKIP_RE.test(newText) && !SKIP_RE.test(oldText)) {
+  if (sRe.test(newText) && !sRe.test(oldText)) {
     weak = `${weak ? `${weak}; ` : ''}introduced SKIP/TODO/commented-out assertion`;
   }
   if (!weak) return;

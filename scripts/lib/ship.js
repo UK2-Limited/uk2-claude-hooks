@@ -7,25 +7,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { envc, shipConfigFile, shipSpoolFile } = require('./common.js');
-
-// config.env is a shell-style KEY="value" file (same format the bash hooks
-// used); parsed without executing anything.
-function parseEnvFile(file) {
-  const out = {};
-  for (const raw of fs.readFileSync(file, 'utf8').split('\n')) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    const m = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (!m) continue;
-    let val = m[2].trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    out[m[1]] = val;
-  }
-  return out;
-}
+const { envc, parseEnvFile, shipConfigFile, shipSpoolFile } = require('./common.js');
 
 // null when shipping is disabled/unconfigured. File values override process
 // env (matching the bash version, which sourced the file last); UK2_/CHIMERA_

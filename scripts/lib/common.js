@@ -21,9 +21,41 @@ function envc(key, source = process.env) {
   return legacy === undefined ? '' : legacy;
 }
 
+// config.env / hooks.env are shell-style KEY="value" files (same format the
+// bash hooks used); parsed without executing anything.
+function parseEnvFile(file) {
+  const out = {};
+  for (const raw of fs.readFileSync(file, 'utf8').split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const m = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!m) continue;
+    let val = m[2].trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    out[m[1]] = val;
+  }
+  return out;
+}
+
 // --- Paths ---
 function repoRoot() { return process.env.CLAUDE_PROJECT_DIR || process.cwd(); }
 function devenvDir() { return envc('DEVENV_DIR') || path.join(repoRoot(), '..'); }
+
+// --- Behavioural gate config (compile-check / test-integrity / stop gate) ---
+// Optional per-project file, meant to be committed by the consuming repo (no
+// secrets in it). Every key also works as a plain env var; file values
+// override the environment (same rule as the telemetry config.env), and the
+// UK2_/CHIMERA_ aliasing applies to both.
+function hooksConfigFile() {
+  return envc('HOOKS_CONFIG') || path.join(repoRoot(), '.claude', 'validation', 'hooks.env');
+}
+function hooksConfig() {
+  let fileVars = {};
+  try { fileVars = parseEnvFile(hooksConfigFile()); } catch { /* no file — env only */ }
+  return { ...process.env, ...fileVars };
+}
 
 function relPath(p) {
   const root = repoRoot();
@@ -191,7 +223,8 @@ function run(fn) {
 }
 
 module.exports = {
-  envc, repoRoot, devenvDir, relPath, readInput, get, trunc, isAgentMode,
+  envc, parseEnvFile, repoRoot, devenvDir, hooksConfigFile, hooksConfig,
+  relPath, readInput, get, trunc, isAgentMode,
   deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, isoNow,
   currentIssue, transcriptTail, shipConfigFile, shipSpoolFile, logEvent,
   shipEvent, run,

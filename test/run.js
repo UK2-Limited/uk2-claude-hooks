@@ -44,6 +44,8 @@ const SPOOL = path.join(PROJ, '.claude', 'telemetry', 'unshipped.jsonl');
 const TICKET = path.join(PROJ, '.claude', 'state', 'ticket.json');
 const VERIFY = path.join(PROJ, '.claude', 'state', 'verify.json');
 const CAP = path.join(PROJ, '.claude', 'state', `stop-blocks-${SID}`);
+// Scratch hooks.env for the configured-gate tests (passed via UK2_HOOKS_CONFIG).
+const HOOKSENV = path.join(PROJ, 'hooks-test.env');
 
 // --- harness ---
 let pass = 0;
@@ -60,6 +62,10 @@ function run(script, payload, extraEnv = {}) {
     'CHIMERA_ALLOW_DANGEROUS', 'UK2_ISSUE', 'CHIMERA_ISSUE', 'UK2_TELEMETRY_DISABLE',
     'CHIMERA_TELEMETRY_DISABLE', 'CHIMERA_TELEMETRY_CONFIG', 'UK2_TELEMETRY_SPOOL',
     'CHIMERA_TELEMETRY_SPOOL', 'UK2_DEVENV_DIR', 'CHIMERA_DEVENV_DIR']) delete env[k];
+  // Ditto for any ambient gate config (hooks.env keys as env vars).
+  for (const k of Object.keys(env)) {
+    if (/^(UK2|CHIMERA)_(HOOKS_CONFIG|COMPILE_CHECK|TEST_INTEGRITY|STOP_GATE)/.test(k)) delete env[k];
+  }
   Object.assign(env, extraEnv);
   const r = spawnSync(process.execPath, [path.join(SCRIPTS, script)], {
     input: JSON.stringify(payload), encoding: 'utf8', timeout: 30000, env,
@@ -146,12 +152,86 @@ async function waitSpoolStable(timeoutMs = 10000) {
     tool_input: { file_path: 't/foo.t', old_string: 'ok(1);', new_string: 'ok(1);\nis($a,$b);' },
   }, { UK2_AGENT_MODE: 'implement' }); wantAllow('allow added assertion');
 
+  console.log('== test-integrity (configured regexes) ==');
+  const jsDrop = {
+    session_id: SID,
+    tool_name: 'Edit',
+    tool_input: {
+      file_path: 'src/foo.test.js',
+      old_string: 'expect(a).toBe(1);\nexpect(b).toBe(2);',
+      new_string: 'expect(a).toBe(1);',
+    },
+  };
+  run('test-integrity.js', jsDrop, { UK2_AGENT_MODE: 'implement' });
+  wantAllow('js test file ignored by default heuristics');
+  fs.writeFileSync(HOOKSENV,
+    'UK2_TEST_INTEGRITY_FILE_RE="\\.test\\.js$"\n'
+    + 'UK2_TEST_INTEGRITY_ASSERT_RE="\\bexpect\\s*\\("\n'
+    + 'UK2_TEST_INTEGRITY_SKIP_RE="\\b(it|test)\\.skip\\b"\n');
+  run('test-integrity.js', jsDrop, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
+  wantDeny('configured ASSERT_RE denies js assertion drop');
+  run('test-integrity.js', {
+    session_id: SID,
+    tool_name: 'Edit',
+    tool_input: { file_path: 'src/foo.test.js', old_string: "it('x', f);", new_string: "it.skip('x', f);" },
+  }, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
+  wantDeny('configured SKIP_RE denies introduced skip');
+  run('test-integrity.js', editDrop, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
+  wantAllow('FILE_RE override replaces the perl heuristic');
+  run('test-integrity.js', editDrop, { UK2_AGENT_MODE: 'implement', UK2_TEST_INTEGRITY_DISABLE: '1' });
+  wantAllow('UK2_TEST_INTEGRITY_DISABLE turns hook off');
+  fs.rmSync(HOOKSENV, { force: true });
+
   console.log('== compile-check (skip paths) ==');
   run('compile-check.js', { session_id: SID, tool_name: 'Edit', tool_input: { file_path: 'lib/Foo.pm' } },
     { UK2_DEVENV_DIR: '/nonexistent-devenv' });
   wantAllow('skip when api down');
   run('compile-check.js', { session_id: SID, tool_name: 'Edit', tool_input: { file_path: 'README.md' } });
   wantAllow('ignore non-perl file');
+
+  console.log('== compile-check (configured steps) ==');
+  const ccEdit = (fp) => ({ session_id: SID, tool_name: 'Edit', tool_input: { file_path: fp } });
+  const ccRun = (payload, extra = {}) => run('compile-check.js', payload, { UK2_HOOKS_CONFIG: HOOKSENV, ...extra });
+
+  fs.writeFileSync(HOOKSENV,
+    'UK2_COMPILE_CHECK_1_MATCH="\\.pm$"\n'
+    + 'UK2_COMPILE_CHECK_1_CMD="echo compile error in {file} >&2; exit 2"\n');
+  ccRun(ccEdit('lib/Foo.pm'));
+  wantBlock('failing step blocks');
+  check('block carries command output', OUT.includes('compile error in'));
+  const cf = lastEvent('compile_fail');
+  check('compile_fail logged with step+cmd', cf && cf.step === 1 && cf.file === 'lib/Foo.pm' && typeof cf.cmd === 'string');
+
+  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_MATCH="\\.pm$"\nUK2_COMPILE_CHECK_1_CMD="true"\n');
+  ccRun(ccEdit('lib/Foo.pm')); wantAllow('passing step allows');
+
+  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_MATCH="\\.ts$"\nUK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  ccRun(ccEdit('lib/Foo.pm')); wantAllow('non-matching step skipped');
+
+  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_PRECHECK="false"\nUK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  ccRun(ccEdit('lib/Foo.pm')); wantAllow('failed precheck skips quietly');
+
+  fs.writeFileSync(HOOKSENV,
+    'UK2_COMPILE_CHECK_1_CMD="echo WARNING: unresolved reference"\n'
+    + 'UK2_COMPILE_CHECK_1_ERROR_RE="unresolved reference"\n');
+  ccRun(ccEdit('lib/Foo.pm')); wantBlock('ERROR_RE match blocks despite exit 0');
+
+  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_CMD="true"\nUK2_COMPILE_CHECK_2_CMD="exit 3"\n');
+  ccRun(ccEdit('lib/Foo.pm')); wantBlock('second step failure blocks');
+
+  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_MATCH="\\.md$"\nUK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  ccRun(ccEdit('docs/README.md')); wantBlock('configured steps reach beyond .pm/.pl');
+
+  fs.writeFileSync(HOOKSENV, 'UK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  ccRun(ccEdit('lib/Foo.pm'), { UK2_COMPILE_CHECK_DISABLE: '1' });
+  wantAllow('UK2_COMPILE_CHECK_DISABLE turns hook off');
+  fs.rmSync(HOOKSENV, { force: true });
+
+  const DEFHOOKSENV = path.join(PROJ, '.claude', 'validation', 'hooks.env');
+  fs.writeFileSync(DEFHOOKSENV, 'UK2_COMPILE_CHECK_1_CMD="exit 1"\n');
+  run('compile-check.js', ccEdit('lib/Foo.pm'));
+  wantBlock('default .claude/validation/hooks.env is picked up');
+  fs.rmSync(DEFHOOKSENV, { force: true });
 
   console.log('== stop-require-evidence ==');
   fs.rmSync(VERIFY, { force: true }); fs.rmSync(CAP, { force: true });
@@ -164,6 +244,32 @@ async function waitSpoolStable(timeoutMs = 10000) {
   wantAllow('agent-mode allows with passing sentinel');
   run('stop-require-evidence.js', { session_id: SID, stop_hook_active: true }, { UK2_AGENT_MODE: 'implement' });
   wantAllow('stop_hook_active short-circuit');
+  fs.rmSync(VERIFY, { force: true }); fs.rmSync(CAP, { force: true });
+
+  console.log('== stop-require-evidence (configured) ==');
+  const stopPayload = { session_id: SID, stop_hook_active: false };
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_STOP_GATE_DISABLE: '1' });
+  wantAllow('UK2_STOP_GATE_DISABLE turns gate off');
+
+  fs.writeFileSync(HOOKSENV, 'UK2_STOP_GATE_CMD="true"\n');
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
+  wantAllow('passing STOP_GATE_CMD replaces sentinel');
+
+  fs.writeFileSync(HOOKSENV,
+    'UK2_STOP_GATE_CMD="echo 3 tests failing; exit 1"\n'
+    + 'UK2_STOP_GATE_MESSAGE="Verify must pass for {head}."\n');
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
+  wantBlock('failing STOP_GATE_CMD blocks');
+  check('custom message fills {head} and carries output',
+    OUT.includes(`Verify must pass for ${HEAD}.`) && OUT.includes('3 tests failing'));
+
+  fs.rmSync(CAP, { force: true });
+  fs.writeFileSync(HOOKSENV, 'UK2_STOP_GATE_CMD="false"\nUK2_STOP_GATE_MAX_BLOCKS=1\n');
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
+  wantBlock('first failure blocks under MAX_BLOCKS=1');
+  run('stop-require-evidence.js', stopPayload, { UK2_AGENT_MODE: 'implement', UK2_HOOKS_CONFIG: HOOKSENV });
+  wantAllow('cap exhausted after MAX_BLOCKS blocks');
+  fs.rmSync(HOOKSENV, { force: true });
   fs.rmSync(VERIFY, { force: true }); fs.rmSync(CAP, { force: true });
 
   console.log('== session-context ==');
