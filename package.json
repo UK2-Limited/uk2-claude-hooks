@@ -1,0 +1,7 @@
+{
+  "name": "uk2-claude-hooks",
+  "private": true,
+  "description": "UK2 Group Claude Code plugin: safety gates + Elasticsearch telemetry hooks. Zero runtime dependencies (Node built-ins only).",
+  "engines": { "node": ">=18" },
+  "scripts": { "test": "node test/run.js" }
+}
