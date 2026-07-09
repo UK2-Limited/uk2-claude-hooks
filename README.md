@@ -58,6 +58,10 @@ To auto-enable for a whole team, a consuming repo can add to its `.claude/settin
 > these hooks** (e.g. Chimera before its hook-removal PR lands) — both copies would run and
 > every telemetry event would be logged twice.
 
+Add `.claude/telemetry/` and `.claude/state/` to the consuming repo's `.gitignore` — the
+hooks write local JSONL telemetry and state files there from the very first session, even
+with shipping unconfigured.
+
 ## Configure the gates (`hooks.json`)
 
 The gates take per-project config from
