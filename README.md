@@ -35,13 +35,19 @@ Private-repo auth rides on your existing git credentials (`gh auth login`, SSH a
 `GITHUB_TOKEN`/`GH_TOKEN` env var for non-interactive updates). The plugin has no `version`
 field, so every commit to this repo is picked up as an update.
 
+**Updates are not automatic by default.** Third-party marketplaces ship with auto-update
+off, so either enable it once in the `/plugin` UI (Marketplaces → uk2-claude-hooks →
+auto-update) — after which every commit is picked up at Claude Code startup — or refresh
+manually with `/plugin marketplace update uk2-claude-hooks`.
+
 To auto-enable for a whole team, a consuming repo can add to its `.claude/settings.json`:
 
 ```json
 {
   "extraKnownMarketplaces": {
     "uk2-claude-hooks": {
-      "source": { "source": "github", "repo": "UK2-Limited/uk2-claude-hooks" }
+      "source": { "source": "github", "repo": "UK2-Limited/uk2-claude-hooks" },
+      "autoUpdate": true
     }
   },
   "enabledPlugins": { "uk2-claude-hooks@uk2-claude-hooks": true }
