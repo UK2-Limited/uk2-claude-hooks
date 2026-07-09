@@ -200,7 +200,7 @@ from the origin remote URL; folder basename when there is no remote/repo), `user
 | `tool_failure` | `tool`, `exit_code`, `command`, `error_summary` |
 | `compile_fail` | `file`, `error`; configured steps add `step`, `cmd` |
 | `dangerous_bash_blocked` / `protected_deny` / `protected_warn` / `test_integrity` / `stop_gate_exhausted` | gate-specific detail fields |
-| `session_summary` | `end_reason`, `wall_ms`, `tests_run`, `tool_failures`, `compile_fails`, `tool_calls`, `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `total_tokens`, `turns`, `est_cost_usd` |
+| `session_summary` | `end_reason`, `wall_ms`, `tests_run`, `tool_failures`, `compile_fails`, `tool_calls`, `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `total_tokens` (input + output), `total_cache_tokens` (cache creation + read), `turns`, `est_cost_usd` |
 
 Note: `tool_failure.command`, `test_run.command` and `skill_use.args` ship truncated but
 **unredacted** — treat the index accordingly (same caveat the in-repo bash hooks had).

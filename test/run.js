@@ -592,7 +592,8 @@ async function waitSpoolStable(timeoutMs = 10000) {
     session_id: SID, hook_event_name: 'SessionEnd', end_reason: 'other', transcript_path: TRANSCRIPT,
   });
   ev = lastEvent('session_summary');
-  check('session_summary total_tokens=465', ev && ev.total_tokens === 465 && ev.turns === 2);
+  check('session_summary total_tokens=430 total_cache_tokens=35',
+    ev && ev.total_tokens === 430 && ev.total_cache_tokens === 35 && ev.turns === 2);
   check('session_summary counts + identity', ev && ev.tool_failures >= 1
     && ev.user === 'hooktest@uk2group.com' && ev.repo === 'uk2group/scratch-repo'
     && typeof ev.wall_ms === 'number');

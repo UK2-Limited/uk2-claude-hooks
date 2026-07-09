@@ -30,6 +30,7 @@ c.run(async (input) => {
     cache_read_input_tokens: 0,
     cache_creation_input_tokens: 0,
     total_tokens: 0,
+    total_cache_tokens: 0,
     turns: 0,
     est_cost_usd: 0,
   };
@@ -51,8 +52,8 @@ c.run(async (input) => {
         const lineCost = entry && (entry.costUSD ?? entry.total_cost_usd);
         if (typeof lineCost === 'number' && lineCost > cost) cost = lineCost;
       }
-      tok.total_tokens = tok.input_tokens + tok.output_tokens
-        + tok.cache_read_input_tokens + tok.cache_creation_input_tokens;
+      tok.total_tokens = tok.input_tokens + tok.output_tokens;
+      tok.total_cache_tokens = tok.cache_creation_input_tokens + tok.cache_read_input_tokens;
       tok.est_cost_usd = cost;
     } catch { /* unreadable transcript -> zeros */ }
   }
