@@ -567,10 +567,41 @@ async function waitSpoolStable(timeoutMs = 10000) {
     },
   });
   ev = lastEvent('edit');
-  check('edit logged for Write create',
+  check('edit trusts hunks when a Write response carries a non-empty patch',
     ev && ev.tool === 'Write' && ev.file_path === 'docs/new.md'
     && ev.lines_added === 2 && ev.lines_removed === 0);
   check('edit permission_mode null when absent', ev && ev.permission_mode === null);
+
+  // Real Write-create payload: Claude Code sends an EMPTY structuredPatch for
+  // new files ({type:'create', content, originalFile:null}) — lines must come
+  // from the accepted content, not the (zero) hunks.
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Write',
+    tool_input: { file_path: 'src/new-file.c', content: 'a\nb\nc\n' },
+    tool_response: {
+      type: 'create',
+      filePath: 'src/new-file.c',
+      content: 'a\nb\nc\n',
+      structuredPatch: [],
+      originalFile: null,
+      userModified: false,
+    },
+  });
+  ev = lastEvent('edit');
+  check('Write create with empty patch counts lines from content',
+    ev && ev.tool === 'Write' && ev.file_path === 'src/new-file.c'
+    && ev.lines_added === 3 && ev.lines_removed === 0);
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Write',
+    tool_input: { file_path: 'src/one-liner.txt', content: 'no trailing newline' },
+    tool_response: { type: 'create', content: 'no trailing newline', structuredPatch: [], originalFile: null },
+  });
+  ev = lastEvent('edit');
+  check('Write create counts last line without trailing newline',
+    ev && ev.lines_added === 1 && ev.lines_removed === 0);
 
   run('telemetry-posttool.js', {
     session_id: SID,

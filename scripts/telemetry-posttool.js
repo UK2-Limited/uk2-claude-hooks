@@ -135,6 +135,9 @@ c.run((input) => {
   // Counts come from the tool_response's structuredPatch (exact, handles
   // replace_all); null when the patch is absent or malformed (NotebookEdit,
   // older Claude Code versions) — never guessed from tool_input arithmetic.
+  // Exception: a Write that CREATES a file ships an empty structuredPatch
+  // ({type:'create', content, originalFile:null}), so lines come from the
+  // accepted content instead.
   if (ok && ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) {
     const filePath = c.get(input, 'tool_input.file_path') || c.get(input, 'tool_input.notebook_path');
     if (filePath) {
@@ -150,6 +153,11 @@ c.run((input) => {
             if (l[0] === '+') linesAdded += 1;
             else if (l[0] === '-') linesRemoved += 1;
           }
+        }
+        const content = c.get(input, 'tool_response.content');
+        if (patch.length === 0 && c.get(input, 'tool_response.type') === 'create'
+            && typeof content === 'string' && content !== '') {
+          linesAdded = content.split('\n').length - (content.endsWith('\n') ? 1 : 0);
         }
       }
       c.logEvent(input, 'edit', {

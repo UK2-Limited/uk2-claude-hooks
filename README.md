@@ -206,7 +206,7 @@ from the origin remote URL; folder basename when there is no remote/repo), `user
 | `tool_use` | `tool`, `ok`, `message_id`, `tokens_in/out`, `tokens_cache_read/created`. Token counts are those of the assistant **message** that issued the call — parallel tool calls in one message share the numbers, so dedupe on `message_id` when summing. |
 | `skill_use` | `skill`, `args` (truncated), `ok` |
 | `agent_use` | `agent_type`, `description`, `model`, `model_source` (`override` = explicit in the call, `agent-def` = agent frontmatter, `session` = inherited session model inferred from the transcript), `ok` |
-| `edit` | `tool`, `file_path` (repo-relative), `lines_added`, `lines_removed`, `permission_mode` — counted from the tool's `structuredPatch`; both counts `null` when no patch is available (e.g. NotebookEdit). Emitted only for **successful** Edit/Write/MultiEdit/NotebookEdit calls; failed edits show up as `tool_failure` instead. |
+| `edit` | `tool`, `file_path` (repo-relative), `lines_added`, `lines_removed`, `permission_mode` — counted from the tool's `structuredPatch`; for a Write that creates a new file (empty patch) `lines_added` is counted from the accepted content; both counts `null` when no patch is available (e.g. NotebookEdit). Emitted only for **successful** Edit/Write/MultiEdit/NotebookEdit calls; failed edits show up as `tool_failure` instead. |
 | `test_run` | `command`, `target`, `exit_code`, `passed`, `failed`, `tests_run`, `duration_ms` |
 | `tool_failure` | `tool`, `exit_code`, `command`, `error_summary` |
 | `compile_fail` | `file`, `error`; configured steps add `step`, `cmd` |
