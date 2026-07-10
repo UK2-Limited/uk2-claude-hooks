@@ -3,8 +3,10 @@
 // PostToolUse (*): telemetry. Emits a `tool_use` line for every tool call
 // (with the issuing message's token usage), a `test_run` line for every test
 // invocation, a `tool_failure` line for any tool that errored, a `skill_use`
-// line naming each skill invoked via the Skill tool, and an `agent_use` line
-// naming each subagent type spawned via the Agent tool. Never blocks (exit 0).
+// line naming each skill invoked via the Skill tool, an `agent_use` line
+// naming each subagent type spawned via the Agent tool, and an `edit` line
+// with lines added/removed for every successful file-modifying call.
+// Never blocks (exit 0).
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -127,5 +129,36 @@ c.run((input) => {
       model_source: modelSource || null,
       ok,
     });
+  }
+
+  // --- edit: lines of code accepted, per successful file-modifying call ---
+  // Counts come from the tool_response's structuredPatch (exact, handles
+  // replace_all); null when the patch is absent or malformed (NotebookEdit,
+  // older Claude Code versions) — never guessed from tool_input arithmetic.
+  if (ok && ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) {
+    const filePath = c.get(input, 'tool_input.file_path') || c.get(input, 'tool_input.notebook_path');
+    if (filePath) {
+      let linesAdded = null;
+      let linesRemoved = null;
+      const patch = c.get(input, 'tool_response.structuredPatch');
+      if (Array.isArray(patch)) {
+        linesAdded = 0;
+        linesRemoved = 0;
+        for (const hunk of patch) {
+          for (const l of Array.isArray(hunk && hunk.lines) ? hunk.lines : []) {
+            if (typeof l !== 'string') continue;
+            if (l[0] === '+') linesAdded += 1;
+            else if (l[0] === '-') linesRemoved += 1;
+          }
+        }
+      }
+      c.logEvent(input, 'edit', {
+        tool,
+        file_path: c.relPath(String(filePath)),
+        lines_added: linesAdded,
+        lines_removed: linesRemoved,
+        permission_mode: c.get(input, 'permission_mode') || null,
+      });
+    }
   }
 });

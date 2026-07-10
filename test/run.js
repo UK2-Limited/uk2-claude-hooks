@@ -535,6 +535,95 @@ async function waitSpoolStable(timeoutMs = 10000) {
   check('agent_use defaults type, null model without transcript',
     ev && ev.agent_type === 'general-purpose' && ev.model === null && ev.model_source === null);
 
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Edit',
+    permission_mode: 'acceptEdits',
+    tool_input: { file_path: path.join(PROJ, 'lib/Foo.pm'), old_string: 'a', new_string: 'b' },
+    tool_response: {
+      filePath: path.join(PROJ, 'lib/Foo.pm'),
+      structuredPatch: [
+        { oldStart: 1, oldLines: 3, newStart: 1, newLines: 4, lines: [' ctx', '-old', '+new', '+more', ' tail'] },
+        { oldStart: 9, oldLines: 2, newStart: 10, newLines: 1, lines: ['-gone', ' keep'] },
+      ],
+      userModified: false,
+    },
+  });
+  ev = lastEvent('edit');
+  check('edit counts +/- across hunks, path repo-relative',
+    ev && ev.tool === 'Edit' && ev.file_path === 'lib/Foo.pm'
+    && ev.lines_added === 2 && ev.lines_removed === 2);
+  check('edit carries permission_mode', ev && ev.permission_mode === 'acceptEdits');
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Write',
+    tool_input: { file_path: 'docs/new.md', content: 'a\nb\n' },
+    tool_response: {
+      type: 'create',
+      filePath: 'docs/new.md',
+      content: 'a\nb\n',
+      structuredPatch: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 2, lines: ['+a', '+b'] }],
+    },
+  });
+  ev = lastEvent('edit');
+  check('edit logged for Write create',
+    ev && ev.tool === 'Write' && ev.file_path === 'docs/new.md'
+    && ev.lines_added === 2 && ev.lines_removed === 0);
+  check('edit permission_mode null when absent', ev && ev.permission_mode === null);
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'NotebookEdit',
+    tool_input: { notebook_path: 'analysis/nb.ipynb', new_source: 'x = 1' },
+    tool_response: {},
+  });
+  ev = lastEvent('edit');
+  check('edit null counts without structuredPatch, notebook_path used',
+    ev && ev.tool === 'NotebookEdit' && ev.file_path === 'analysis/nb.ipynb'
+    && ev.lines_added === null && ev.lines_removed === null);
+
+  let editsBefore = events('edit').length;
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Edit',
+    tool_input: { file_path: 'lib/Foo.pm', old_string: 'x', new_string: 'y' },
+    tool_response: { error: 'String to replace not found' },
+  });
+  check('failed edit emits no edit event (tool_failure covers it)',
+    events('edit').length === editsBefore && lastEvent('tool_failure') !== null);
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Edit',
+    tool_input: { file_path: 'lib/Foo.pm', old_string: 'a', new_string: 'b' },
+    tool_response: { filePath: 'lib/Foo.pm', structuredPatch: 'garbage' },
+  });
+  wantAllow('edit fail-open on non-array structuredPatch');
+  ev = lastEvent('edit');
+  check('edit null counts on non-array structuredPatch',
+    ev && ev.lines_added === null && ev.lines_removed === null);
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Edit',
+    tool_input: { file_path: 'lib/Foo.pm', old_string: 'a', new_string: 'b' },
+    tool_response: { structuredPatch: [null, { lines: 'nope' }, { lines: ['+ok', 42] }] },
+  });
+  wantAllow('edit fail-open on junk inside structuredPatch');
+  ev = lastEvent('edit');
+  check('edit skips junk hunks/lines, still counts strings',
+    ev && ev.lines_added === 1 && ev.lines_removed === 0);
+
+  editsBefore = events('edit').length;
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Edit',
+    tool_input: {},
+    tool_response: { structuredPatch: [] },
+  });
+  check('edit skipped when no file path in tool_input', events('edit').length === editsBefore);
+
   console.log('== telemetry shipping ==');
   const failPayload = {
     session_id: SID,
