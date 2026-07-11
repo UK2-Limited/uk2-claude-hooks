@@ -199,6 +199,9 @@ function logEvent(input, event, extra = {}) {
   try {
     const sid = get(input, 'session_id') || 'nosession';
     const issue = currentIssue();
+    // agent_id is present in the hook payload only when the call was made by a
+    // sub-agent (Task/Agent tool, Workflow fan-outs); session_id stays the parent's.
+    const agentId = get(input, 'agent_id') || null;
     const line = JSON.stringify({
       ts: isoNow(),
       event,
@@ -208,6 +211,8 @@ function logEvent(input, event, extra = {}) {
       user: telemetryUser(),
       host: telemetryHost(),
       issue: issue || null,
+      subagent: Boolean(agentId),
+      agent_id: agentId,
       ...extra,
     });
     const dir = path.join(repoRoot(), '.claude', 'telemetry', 'sessions');

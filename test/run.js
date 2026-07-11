@@ -534,6 +534,61 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('agent_use');
   check('agent_use defaults type, null model without transcript',
     ev && ev.agent_type === 'general-purpose' && ev.model === null && ev.model_source === null);
+  check('main-loop events carry subagent=false agent_id=null',
+    ev && ev.subagent === false && ev.agent_id === null);
+
+  console.log('== sub-agent attribution ==');
+  // A sub-agent's tool call arrives with agent_id/agent_type in the payload and
+  // the PARENT's transcript_path; its own transcript lives under
+  // <transcript minus .jsonl>/subagents/. Tokens must come from that file, not
+  // from the main loop's last assistant message.
+  const AGTRANS = path.join(PROJ, 'agent-transcript.jsonl');
+  fs.copyFileSync(TRANSCRIPT, AGTRANS);
+  const AGSUB = path.join(PROJ, 'agent-transcript', 'subagents');
+  fs.mkdirSync(path.join(AGSUB, 'workflows', 'wf_1'), { recursive: true });
+  fs.writeFileSync(path.join(AGSUB, 'agent-sub42.jsonl'),
+    '{"type":"assistant","message":{"id":"msg_sub1","usage":{"input_tokens":7,"output_tokens":11,"cache_read_input_tokens":3,"cache_creation_input_tokens":1}}}\n');
+  run('telemetry-posttool.js', {
+    session_id: SID, transcript_path: AGTRANS, agent_id: 'sub42', agent_type: 'Explore',
+    tool_name: 'Read', tool_input: { file_path: 'lib/Foo.pm' }, tool_response: {},
+  });
+  ev = lastEvent('tool_use');
+  check('sub-agent tool_use marked subagent=true with agent_id',
+    ev && ev.subagent === true && ev.agent_id === 'sub42');
+  check('sub-agent tool_use tokens from its own transcript',
+    ev && ev.tokens_in === 7 && ev.tokens_out === 11 && ev.tokens_cache_read === 3
+    && ev.message_id === 'msg_sub1');
+
+  // Workflow fan-out agents nest deeper — the transcript is found by walking.
+  fs.writeFileSync(path.join(AGSUB, 'workflows', 'wf_1', 'agent-nest7.jsonl'),
+    '{"type":"assistant","message":{"id":"msg_nest1","usage":{"input_tokens":5,"output_tokens":9,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n');
+  run('telemetry-posttool.js', {
+    session_id: SID, transcript_path: AGTRANS, agent_id: 'nest7', agent_type: 'workflow',
+    tool_name: 'Bash', tool_input: { command: 'true' }, tool_response: { exit_code: 0 },
+  });
+  ev = lastEvent('tool_use');
+  check('nested workflow agent transcript found for tokens',
+    ev && ev.agent_id === 'nest7' && ev.tokens_in === 5 && ev.tokens_out === 9
+    && ev.message_id === 'msg_nest1');
+
+  // Unknown agent transcript: null tokens, never the main loop's numbers.
+  run('telemetry-posttool.js', {
+    session_id: SID, transcript_path: AGTRANS, agent_id: 'ghost', agent_type: 'Explore',
+    tool_name: 'Read', tool_input: { file_path: 'lib/Foo.pm' }, tool_response: {},
+  });
+  ev = lastEvent('tool_use');
+  check('missing sub-agent transcript logs no tokens, not main-loop tokens',
+    ev && ev.subagent === true && ev.message_id === null && !ev.tokens_in && !ev.tokens_out);
+
+  // Agent spawn: tool_response.agentId ties the spawn to the worker's events.
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Agent',
+    tool_input: { subagent_type: 'Explore', description: 'x', model: 'haiku' },
+    tool_response: { agentId: 'sub42', status: 'async_launched' },
+  });
+  ev = lastEvent('agent_use');
+  check('agent_use records spawned_agent_id', ev && ev.spawned_agent_id === 'sub42');
 
   run('telemetry-posttool.js', {
     session_id: SID,
@@ -719,6 +774,35 @@ async function waitSpoolStable(timeoutMs = 10000) {
     && typeof ev.wall_ms === 'number');
   check('session_summary appended to summaries.jsonl',
     events('session_summary', path.join(PROJ, '.claude', 'telemetry', 'summaries.jsonl')).length === 1);
+  check('session_summary sub-agent fields zero without subagents dir',
+    ev && ev.total_subagent_tokens === 0 && ev.total_subagent_cache_tokens === 0);
+  check('session_summary carries subagent=false agent_id=null',
+    ev && ev.subagent === false && ev.agent_id === null);
+
+  // Sub-agent transcripts live under <transcript-path minus .jsonl>/subagents/
+  // (possibly nested, e.g. subagents/workflows/wf_*/). Their usage folds into
+  // total_tokens / total_cache_tokens and is broken out as total_subagent_*.
+  const SUBTRANS = path.join(PROJ, 'sub-transcript.jsonl');
+  fs.copyFileSync(TRANSCRIPT, SUBTRANS);
+  const SUBDIR = path.join(PROJ, 'sub-transcript', 'subagents');
+  fs.mkdirSync(path.join(SUBDIR, 'workflows', 'wf_1'), { recursive: true });
+  fs.writeFileSync(path.join(SUBDIR, 'agent-1.jsonl'),
+    '{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":200,"cache_read_input_tokens":50,"cache_creation_input_tokens":25}}}\n'
+    + '{"type":"user","message":{"role":"user","content":"x"}}\n'
+    + 'not json\n');
+  fs.writeFileSync(path.join(SUBDIR, 'workflows', 'wf_1', 'agent-2.jsonl'),
+    '{"type":"assistant","message":{"usage":{"input_tokens":300,"output_tokens":40,"cache_read_input_tokens":5,"cache_creation_input_tokens":0}}}\n');
+  fs.writeFileSync(path.join(SUBDIR, 'agent-1.meta.json'), '{"message":{"usage":{"input_tokens":9999}}}');
+  run('session-summary.js', {
+    session_id: SID, hook_event_name: 'SessionEnd', end_reason: 'other', transcript_path: SUBTRANS,
+  });
+  ev = lastEvent('session_summary');
+  check('session_summary folds sub-agent tokens (subagent=1540, total=1970)',
+    ev && ev.total_subagent_tokens === 1540 && ev.total_tokens === 430 + 1540);
+  check('session_summary folds sub-agent cache tokens (subagent=80, total=115)',
+    ev && ev.total_subagent_cache_tokens === 80 && ev.total_cache_tokens === 35 + 80);
+  check('session_summary main-loop token fields unchanged by sub-agents',
+    ev && ev.input_tokens === 300 && ev.output_tokens === 130 && ev.turns === 2);
 
   console.log(`\nRESULT: ${pass} passed, ${fail} failed, ${skipped} skipped`);
   process.exit(fail === 0 ? 0 : 1);

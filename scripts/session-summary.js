@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 // SessionEnd: per-ticket telemetry roll-up. Sums token usage from the
-// transcript, computes wall time, counts test runs / failures from this
+// transcript (plus sub-agent transcripts under <transcript>/subagents/),
+// computes wall time, counts test runs / failures from this
 // session's JSONL, and appends a `session_summary` line to both the
 // per-session file and summaries.jsonl. Ships in the FOREGROUND — SessionEnd
 // is not latency sensitive and a detached child could be reaped as Claude
@@ -29,6 +30,8 @@ c.run(async (input) => {
     output_tokens: 0,
     cache_read_input_tokens: 0,
     cache_creation_input_tokens: 0,
+    total_subagent_tokens: 0,
+    total_subagent_cache_tokens: 0,
     total_tokens: 0,
     total_cache_tokens: 0,
     turns: 0,
@@ -52,10 +55,39 @@ c.run(async (input) => {
         const lineCost = entry && (entry.costUSD ?? entry.total_cost_usd);
         if (typeof lineCost === 'number' && lineCost > cost) cost = lineCost;
       }
-      tok.total_tokens = tok.input_tokens + tok.output_tokens;
-      tok.total_cache_tokens = tok.cache_creation_input_tokens + tok.cache_read_input_tokens;
       tok.est_cost_usd = cost;
     } catch { /* unreadable transcript -> zeros */ }
+
+    // Sub-agent transcripts (Task/Agent tool, Workflow fan-outs) live under
+    // <transcript-path minus .jsonl>/subagents/, nested arbitrarily deep. Their
+    // usage never appears in the main transcript, so sum it separately here.
+    const walk = (dir) => {
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { walk(p); continue; }
+        if (!e.name.endsWith('.jsonl')) continue;
+        let text;
+        try { text = fs.readFileSync(p, 'utf8'); } catch { continue; }
+        for (const line of text.split('\n')) {
+          if (!line) continue;
+          let entry;
+          try { entry = JSON.parse(line); } catch { continue; }
+          const usage = entry && entry.message && entry.message.usage;
+          if (usage) {
+            tok.total_subagent_tokens += (usage.input_tokens || 0) + (usage.output_tokens || 0);
+            tok.total_subagent_cache_tokens
+              += (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
+          }
+        }
+      }
+    };
+    walk(path.join(transcript.replace(/\.jsonl$/, ''), 'subagents'));
+
+    tok.total_tokens = tok.input_tokens + tok.output_tokens + tok.total_subagent_tokens;
+    tok.total_cache_tokens = tok.cache_creation_input_tokens + tok.cache_read_input_tokens
+      + tok.total_subagent_cache_tokens;
   }
 
   // Wall time from the SessionStart baseline (fallback: null).
@@ -80,6 +112,8 @@ c.run(async (input) => {
     user: c.telemetryUser(),
     host: c.telemetryHost(),
     issue: issue || null,
+    subagent: false,
+    agent_id: null,
     end_reason: endReason || null,
     wall_ms: wallMs,
     tests_run: countEvents(events, 'test_run'),

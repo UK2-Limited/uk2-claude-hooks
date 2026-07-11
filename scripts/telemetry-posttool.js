@@ -31,6 +31,27 @@ function frontmatterModel(file) {
   return '';
 }
 
+// The sub-agent's own transcript: directly under subagents/, or nested deeper
+// for Workflow fan-outs. '' when it cannot be found.
+function findAgentTranscript(transcript, agentId) {
+  if (!transcript) return '';
+  const name = `agent-${agentId}.jsonl`;
+  const root = path.join(transcript.replace(/\.jsonl$/, ''), 'subagents');
+  const direct = path.join(root, name);
+  try { fs.accessSync(direct); return direct; } catch { /* walk instead */ }
+  const stack = [root];
+  while (stack.length) {
+    let entries;
+    const dir = stack.pop();
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (e.isDirectory()) stack.push(path.join(dir, e.name));
+      else if (e.name === name) return path.join(dir, e.name);
+    }
+  }
+  return '';
+}
+
 c.run((input) => {
   const tool = c.get(input, 'tool_name');
   if (!tool) return;
@@ -74,8 +95,14 @@ c.run((input) => {
   // Token counts come from the transcript's last assistant message (the one
   // that issued this call) — usage is per MESSAGE, so parallel tool calls in
   // one message share the same numbers; dedupe on message_id when summing.
+  // Sub-agent calls carry the PARENT's transcript_path plus an agent_id; their
+  // own messages live in <transcript minus .jsonl>/subagents/**/agent-<id>.jsonl,
+  // so read that file instead (an unfindable one logs null tokens rather than
+  // misattributing the main loop's numbers).
   const transcript = String(c.get(input, 'transcript_path') || '');
-  const entries = transcript ? c.transcriptTail(transcript) : [];
+  const agentId = String(c.get(input, 'agent_id') || '');
+  const usageFile = agentId ? findAgentTranscript(transcript, agentId) : transcript;
+  const entries = usageFile ? c.transcriptTail(usageFile) : [];
   let usage = {};
   let msgId = '';
   for (const e of entries) {
@@ -127,6 +154,8 @@ c.run((input) => {
       description: c.trunc(String(c.get(input, 'tool_input.description') || ''), 200),
       model: model || null,
       model_source: modelSource || null,
+      // Joins the spawn to the worker's own events (their agent_id).
+      spawned_agent_id: c.get(input, 'tool_response.agentId') || null,
       ok,
     });
   }
