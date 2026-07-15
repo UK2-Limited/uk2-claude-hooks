@@ -102,18 +102,24 @@ c.run((input) => {
   const transcript = String(c.get(input, 'transcript_path') || '');
   const agentId = String(c.get(input, 'agent_id') || '');
   const usageFile = agentId ? findAgentTranscript(transcript, agentId) : transcript;
-  const entries = usageFile ? c.transcriptTail(usageFile) : [];
+  let entries = usageFile ? c.transcriptTail(usageFile) : [];
+  // The main transcript can inline sub-agent (sidechain) turns; their usage
+  // belongs to the sub-agent, not this call — drop them so neither the token
+  // pick nor the session-model inference below latches onto one. A sub-agent's
+  // own transcript is its own main loop, so nothing is dropped there.
+  if (!agentId) entries = entries.filter((e) => e.isSidechain !== true);
   let usage = {};
   let msgId = '';
   for (const e of entries) {
     const u = e.message && e.message.usage;
     if (u) {
       msgId = e.message.id || '';
+      const t = c.usageTokens(u);
       usage = {
-        tokens_in: u.input_tokens || 0,
-        tokens_out: u.output_tokens || 0,
-        tokens_cache_read: u.cache_read_input_tokens || 0,
-        tokens_cache_created: u.cache_creation_input_tokens || 0,
+        tokens_in: t.input,
+        tokens_out: t.output,
+        tokens_cache_read: t.cacheRead,
+        tokens_cache_created: t.cacheCreate,
       };
     }
   }

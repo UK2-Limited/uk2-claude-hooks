@@ -467,7 +467,10 @@ async function waitSpoolStable(timeoutMs = 10000) {
   });
   ev = lastEvent('tool_use');
   check('tool_use ok=true logged for Read', ev && ev.tool === 'Read' && ev.ok === true);
-  check('tool_use carries message tokens', ev && ev.tokens_in === 200 && ev.tokens_out === 80
+  // The transcript tail ends with an isSidechain entry (9999s) — the pick must
+  // skip it and land on msg_test2's FINAL entry (out=80, not the partial 30).
+  check('tool_use carries last main-loop message tokens (skips sidechain)',
+    ev && ev.tokens_in === 200 && ev.tokens_out === 80
     && ev.tokens_cache_read === 20 && ev.tokens_cache_created === 0 && ev.message_id === 'msg_test2');
   check('events stamped with user+host', ev && ev.user === 'hooktest@uk2group.com'
     && typeof ev.host === 'string' && ev.host.length > 0);
@@ -769,6 +772,16 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('session_summary');
   check('session_summary total_tokens=430 total_cache_tokens=35',
     ev && ev.total_tokens === 430 && ev.total_cache_tokens === 35 && ev.turns === 2);
+  // The fixture sets three traps the raw per-line sum would fall into:
+  // msg_test2 appears twice with growing usage (dedupe: out=80, not 30+80),
+  // an isSidechain entry carries 9999s (excluded from the main loop), and
+  // msg_test1 has only the NESTED cache_creation shape (3+2=5).
+  check('session_summary dedupes repeated message ids (out=130, not 160)',
+    ev && ev.input_tokens === 300 && ev.output_tokens === 130);
+  check('session_summary excludes inline sidechain usage',
+    ev && ev.cache_read_input_tokens === 30 && ev.input_tokens === 300);
+  check('session_summary sums nested cache_creation shape (cc=5)',
+    ev && ev.cache_creation_input_tokens === 5);
   check('session_summary counts + identity', ev && ev.tool_failures >= 1
     && ev.user === 'hooktest@uk2group.com' && ev.repo === 'uk2group/scratch-repo'
     && typeof ev.wall_ms === 'number');
@@ -786,8 +799,13 @@ async function waitSpoolStable(timeoutMs = 10000) {
   fs.copyFileSync(TRANSCRIPT, SUBTRANS);
   const SUBDIR = path.join(PROJ, 'sub-transcript', 'subagents');
   fs.mkdirSync(path.join(SUBDIR, 'workflows', 'wf_1'), { recursive: true });
+  // agent-1: a streamed message repeated with growing usage (dedupe keeps the
+  // last entry: 1000+180), plus an id-less usage entry that must count on its
+  // own (synthetic key: +20). File total: tokens 1200, cache 75.
   fs.writeFileSync(path.join(SUBDIR, 'agent-1.jsonl'),
-    '{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":200,"cache_read_input_tokens":50,"cache_creation_input_tokens":25}}}\n'
+    '{"type":"assistant","message":{"id":"msg_sub_a","usage":{"input_tokens":1000,"output_tokens":150,"cache_read_input_tokens":40,"cache_creation_input_tokens":25}}}\n'
+    + '{"type":"assistant","message":{"id":"msg_sub_a","usage":{"input_tokens":1000,"output_tokens":180,"cache_read_input_tokens":50,"cache_creation_input_tokens":25}}}\n'
+    + '{"type":"assistant","message":{"usage":{"input_tokens":10,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n'
     + '{"type":"user","message":{"role":"user","content":"x"}}\n'
     + 'not json\n');
   fs.writeFileSync(path.join(SUBDIR, 'workflows', 'wf_1', 'agent-2.jsonl'),

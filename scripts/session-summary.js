@@ -39,20 +39,20 @@ c.run(async (input) => {
   };
   if (transcript) {
     try {
+      // Whole transcript, parsed. aggregateUsage dedupes per message.id (the
+      // transcript repeats a message's full usage once per content block) and
+      // skips inline sidechain turns — their usage is summed from the
+      // sub-agent transcripts below.
+      const entries = c.transcriptTail(transcript, Infinity);
+      const agg = c.aggregateUsage(entries);
+      tok.input_tokens = agg.input_tokens;
+      tok.output_tokens = agg.output_tokens;
+      tok.cache_read_input_tokens = agg.cache_read_input_tokens;
+      tok.cache_creation_input_tokens = agg.cache_creation_input_tokens;
+      tok.turns = agg.turns;
       let cost = 0;
-      for (const line of fs.readFileSync(transcript, 'utf8').split('\n')) {
-        if (!line) continue;
-        let entry;
-        try { entry = JSON.parse(line); } catch { continue; }
-        const usage = entry && entry.message && entry.message.usage;
-        if (usage) {
-          tok.input_tokens += usage.input_tokens || 0;
-          tok.output_tokens += usage.output_tokens || 0;
-          tok.cache_read_input_tokens += usage.cache_read_input_tokens || 0;
-          tok.cache_creation_input_tokens += usage.cache_creation_input_tokens || 0;
-          tok.turns += 1;
-        }
-        const lineCost = entry && (entry.costUSD ?? entry.total_cost_usd);
+      for (const entry of entries) {
+        const lineCost = entry.costUSD ?? entry.total_cost_usd;
         if (typeof lineCost === 'number' && lineCost > cost) cost = lineCost;
       }
       tok.est_cost_usd = cost;
@@ -68,19 +68,12 @@ c.run(async (input) => {
         const p = path.join(dir, e.name);
         if (e.isDirectory()) { walk(p); continue; }
         if (!e.name.endsWith('.jsonl')) continue;
-        let text;
-        try { text = fs.readFileSync(p, 'utf8'); } catch { continue; }
-        for (const line of text.split('\n')) {
-          if (!line) continue;
-          let entry;
-          try { entry = JSON.parse(line); } catch { continue; }
-          const usage = entry && entry.message && entry.message.usage;
-          if (usage) {
-            tok.total_subagent_tokens += (usage.input_tokens || 0) + (usage.output_tokens || 0);
-            tok.total_subagent_cache_tokens
-              += (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
-          }
-        }
+        // Same per-message dedupe as the main loop; a sub-agent transcript is
+        // its own main loop, so nothing in it is skipped as sidechain.
+        const agg = c.aggregateUsage(c.transcriptTail(p, Infinity), { skipSidechain: false });
+        tok.total_subagent_tokens += agg.input_tokens + agg.output_tokens;
+        tok.total_subagent_cache_tokens
+          += agg.cache_read_input_tokens + agg.cache_creation_input_tokens;
       }
     };
     walk(path.join(transcript.replace(/\.jsonl$/, ''), 'subagents'));

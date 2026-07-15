@@ -175,7 +175,8 @@ function currentIssue() {
 
 // --- Transcript access (shared by telemetry-posttool / session-summary) ---
 // Last n lines of the transcript, parsed; malformed lines are dropped
-// individually so one bad line can't hide newer entries.
+// individually so one bad line can't hide newer entries. n = Infinity reads
+// the whole file.
 function transcriptTail(file, n = 200) {
   try {
     return fs.readFileSync(file, 'utf8')
@@ -184,6 +185,64 @@ function transcriptTail(file, n = 200) {
       .map((l) => { try { return JSON.parse(l); } catch { return null; } })
       .filter(Boolean);
   } catch { return []; }
+}
+
+// Normalized token quad from a message.usage object. cache_creation falls back
+// to the nested shape ({ephemeral_5m,ephemeral_1h}_input_tokens) when the flat
+// key is absent — Anthropic sends both today, but only-nested must not read 0.
+function usageTokens(u) {
+  let cacheCreate = 0;
+  if (typeof u.cache_creation_input_tokens === 'number') {
+    cacheCreate = u.cache_creation_input_tokens;
+  } else if (u.cache_creation && typeof u.cache_creation === 'object') {
+    cacheCreate = (u.cache_creation.ephemeral_5m_input_tokens || 0)
+      + (u.cache_creation.ephemeral_1h_input_tokens || 0);
+  }
+  return {
+    input: u.input_tokens || 0,
+    output: u.output_tokens || 0,
+    cacheRead: u.cache_read_input_tokens || 0,
+    cacheCreate,
+  };
+}
+
+// Sum usage across transcript entries. The transcript writes one entry PER
+// CONTENT BLOCK of the same API message, each repeating the message's full
+// usage (which can still grow while streaming) — so dedupe per message.id,
+// last entry wins. Entries with usage but no message.id count individually
+// (uuid/requestId, else a synthetic per-line key). Sidechain entries are
+// inline sub-agent turns whose usage is accounted from the sub-agent's own
+// transcript — skip them unless the caller IS reading a sub-agent transcript.
+// turns = unique messages; model = last non-synthetic model seen (or null).
+function aggregateUsage(entries, { skipSidechain = true } = {}) {
+  const byMsg = new Map();
+  let model = null;
+  let synth = 0;
+  for (const e of entries) {
+    if (!e || typeof e !== 'object') continue;
+    if (skipSidechain && e.isSidechain === true) continue;
+    const u = e.message && e.message.usage;
+    if (!u) continue;
+    const key = e.message.id || e.uuid || e.requestId || `line#${synth++}`;
+    byMsg.set(key, usageTokens(u));
+    const m = e.message.model;
+    if (m && m !== '<synthetic>') model = m;
+  }
+  const agg = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    turns: byMsg.size,
+    model,
+  };
+  for (const t of byMsg.values()) {
+    agg.input_tokens += t.input;
+    agg.output_tokens += t.output;
+    agg.cache_read_input_tokens += t.cacheRead;
+    agg.cache_creation_input_tokens += t.cacheCreate;
+  }
+  return agg;
 }
 
 // --- Telemetry (append-only JSONL, never blocks) ---
@@ -256,6 +315,7 @@ module.exports = {
   envc, readJsonConfig, repoRoot, devenvDir, hooksConfigFile, hooksConfig,
   relPath, readInput, get, trunc, isAgentMode,
   deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, telemetryRepo, isoNow,
-  currentIssue, transcriptTail, shipConfigFile, shipSpoolFile, logEvent,
+  currentIssue, transcriptTail, usageTokens, aggregateUsage,
+  shipConfigFile, shipSpoolFile, logEvent,
   shipEvent, run,
 };
