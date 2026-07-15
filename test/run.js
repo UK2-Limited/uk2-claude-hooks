@@ -76,6 +76,20 @@ function run(script, payload, extraEnv = {}) {
   RC = r.status === null ? -1 : r.status;
 }
 
+// CLIs (telemetry-verify) take argv, not stdin; same ambient-env hygiene.
+function runCli(script, args) {
+  const env = { ...process.env };
+  delete env.CI;
+  delete env.CLAUDE_PROJECT_DIR;
+  for (const k of Object.keys(env)) { if (/^(UK2|CHIMERA)_/.test(k)) delete env[k]; }
+  const r = spawnSync(process.execPath, [path.join(SCRIPTS, script), ...args], {
+    encoding: 'utf8', timeout: 30000, env,
+  });
+  OUT = r.stdout || '';
+  ERR = r.stderr || '';
+  RC = r.status === null ? -1 : r.status;
+}
+
 function ok(name) { pass += 1; console.log(`  ok   ${name}`); }
 function no(name) { fail += 1; console.log(`  FAIL ${name}\n       out=[${OUT.trim()}] rc=${RC} err=[${ERR.trim()}]`); }
 function skip(name) { skipped += 1; console.log(`  skip ${name}`); }
@@ -825,6 +839,64 @@ async function waitSpoolStable(timeoutMs = 10000) {
     ev && ev.total_subagent_cache_tokens === 80 && ev.total_cache_tokens === 35 + 80);
   check('session_summary main-loop token fields unchanged by sub-agents',
     ev && ev.input_tokens === 300 && ev.output_tokens === 130 && ev.turns === 2);
+
+  console.log('== telemetry-verify (CLI) ==');
+  // Hermetic stand-in for ~/.claude/projects/<flattened-path>/ — the CLI takes
+  // --projects-dir so the tests never look at a real transcript store. The
+  // last summary in the session file was computed from SUBTRANS + SUBDIR, so
+  // copying both makes the recompute match exactly.
+  const FAKEPROJ = path.join(PROJ, 'fake-projects');
+  fs.mkdirSync(FAKEPROJ, { recursive: true });
+  fs.copyFileSync(SUBTRANS, path.join(FAKEPROJ, `${SID}.jsonl`));
+  fs.cpSync(path.join(PROJ, 'sub-transcript', 'subagents'),
+    path.join(FAKEPROJ, SID, 'subagents'), { recursive: true });
+  fs.rmSync(SPOOL, { force: true });
+  const sessBefore = fs.readFileSync(SESS, 'utf8');
+
+  runCli('telemetry-verify.js', [PROJ, '--projects-dir', FAKEPROJ]);
+  check('verify: clean project exits 0', RC === 0);
+  check('verify: recompute matches the last summary',
+    OUT.includes('all token fields match'));
+  check('verify: checks summaries.jsonl consistency',
+    OUT.includes('summaries-consistency') && OUT.includes('present in both places'));
+  check('verify: read-only (session file untouched, no spool)',
+    fs.readFileSync(SESS, 'utf8') === sessBefore && !fs.existsSync(SPOOL));
+
+  // A doctored summary must be caught, exit 1, and name the bad field.
+  // tool_calls: 0 because the fabricated session file carries no tool_use.
+  const goodSummary = lastEvent('session_summary');
+  const BADSESS = path.join(PROJ, '.claude', 'telemetry', 'sessions', 'hooktest-bad.jsonl');
+  fs.writeFileSync(BADSESS, `${JSON.stringify({
+    ...goodSummary, session_id: 'hooktest-bad', tool_calls: 0, output_tokens: 999999, total_tokens: 999999,
+  })}\n`);
+  fs.copyFileSync(SUBTRANS, path.join(FAKEPROJ, 'hooktest-bad.jsonl'));
+  fs.cpSync(path.join(PROJ, 'sub-transcript', 'subagents'),
+    path.join(FAKEPROJ, 'hooktest-bad', 'subagents'), { recursive: true });
+  runCli('telemetry-verify.js', [PROJ, '--session', 'hooktest-bad', '--projects-dir', FAKEPROJ]);
+  check('verify: doctored summary exits 1 naming the field',
+    RC === 1 && OUT.includes('output_tokens: logged 999999'));
+
+  runCli('telemetry-verify.js', [PROJ, '--session', 'hooktest-bad', '--projects-dir', FAKEPROJ, '--json']);
+  let vr = null;
+  try { vr = JSON.parse(OUT); } catch { /* check fails below */ }
+  check('verify: --json mirrors checks and exit code',
+    RC === 1 && vr && Array.isArray(vr.checks) && vr.exit === 1 && vr.counts.mismatch >= 1);
+
+  // A pruned transcript is a skip, not a failure.
+  const GHOSTSESS = path.join(PROJ, '.claude', 'telemetry', 'sessions', 'hooktest-ghost.jsonl');
+  fs.writeFileSync(GHOSTSESS, `${JSON.stringify({
+    ...goodSummary, session_id: 'hooktest-ghost', tool_calls: 0,
+  })}\n`);
+  runCli('telemetry-verify.js', [PROJ, '--session', 'hooktest-ghost', '--projects-dir', FAKEPROJ]);
+  check('verify: missing transcript skips, exits 0',
+    RC === 0 && OUT.includes('skip') && OUT.includes('transcript not found'));
+
+  runCli('telemetry-verify.js', [PROJ, '--session', 'no-such-session', '--projects-dir', FAKEPROJ]);
+  check('verify: unknown session exits 2', RC === 2);
+  runCli('telemetry-verify.js', [PROJ, '--bogus-flag']);
+  check('verify: unknown flag exits 2 with usage', RC === 2 && ERR.includes('usage:'));
+  fs.rmSync(BADSESS, { force: true });
+  fs.rmSync(GHOSTSESS, { force: true });
 
   console.log(`\nRESULT: ${pass} passed, ${fail} failed, ${skipped} skipped`);
   process.exit(fail === 0 ? 0 : 1);

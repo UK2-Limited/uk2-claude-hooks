@@ -58,22 +58,9 @@ c.run(async (input) => {
     // Sub-agent transcripts (Task/Agent tool, Workflow fan-outs) live under
     // <transcript-path minus .jsonl>/subagents/, nested arbitrarily deep. Their
     // usage never appears in the main transcript, so sum it separately here.
-    const walk = (dir) => {
-      let entries;
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-      for (const e of entries) {
-        const p = path.join(dir, e.name);
-        if (e.isDirectory()) { walk(p); continue; }
-        if (!e.name.endsWith('.jsonl')) continue;
-        // Same per-message dedupe as the main loop; a sub-agent transcript is
-        // its own main loop, so nothing in it is skipped as sidechain.
-        const agg = c.aggregateUsage(c.transcriptTail(p, Infinity), { skipSidechain: false });
-        tok.total_subagent_tokens += agg.input_tokens + agg.output_tokens;
-        tok.total_subagent_cache_tokens
-          += agg.cache_read_input_tokens + agg.cache_creation_input_tokens;
-      }
-    };
-    walk(path.join(transcript.replace(/\.jsonl$/, ''), 'subagents'));
+    const sub = c.sumSubagentUsage(transcript);
+    tok.total_subagent_tokens = sub.tokens;
+    tok.total_subagent_cache_tokens = sub.cache;
 
     tok.total_tokens = tok.input_tokens + tok.output_tokens + tok.total_subagent_tokens;
     tok.total_cache_tokens = tok.cache_creation_input_tokens + tok.cache_read_input_tokens

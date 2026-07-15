@@ -24,6 +24,15 @@ Elasticsearch never blocks a tool call. Only explicit gate decisions (deny/block
 [project-root]` bulk-imports previously accumulated local JSONL into Elasticsearch.
 Idempotent — doc `_id`s are the sha1 of each line, the same scheme the live shipper uses.
 
+`scripts/telemetry-verify.js` is also a CLI (not a hook): `node scripts/telemetry-verify.js
+[project-root] [--session <id>] [--projects-dir <dir>] [--json]` cross-checks the local
+telemetry against the actual Claude Code transcripts (`~/.claude/projects/…`) — recomputes
+every summary's token fields, checks `tool_use` invariants and
+`sessions/` ↔ `summaries.jsonl` consistency, and reports spool health. Strictly read-only;
+exits 0 when clean, 1 on discrepancies, 2 on usage errors. A pruned transcript is a skip,
+not a failure; summaries shipped before the 2026-07 dedupe fix will report their (real)
+historical inflation.
+
 ## Install
 
 ```

@@ -245,6 +245,30 @@ function aggregateUsage(entries, { skipSidechain = true } = {}) {
   return agg;
 }
 
+// Sum usage across every sub-agent transcript under <transcript minus
+// .jsonl>/subagents/ (Task/Agent tool, Workflow fan-outs; nested arbitrarily
+// deep, only *.jsonl files are read). Same per-message dedupe as
+// aggregateUsage; a sub-agent transcript is its own main loop, so nothing in
+// it is skipped as sidechain. Shared by session-summary and telemetry-verify
+// so the two can't drift.
+function sumSubagentUsage(transcriptPath) {
+  const totals = { tokens: 0, cache: 0 };
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      if (!e.name.endsWith('.jsonl')) continue;
+      const agg = aggregateUsage(transcriptTail(p, Infinity), { skipSidechain: false });
+      totals.tokens += agg.input_tokens + agg.output_tokens;
+      totals.cache += agg.cache_read_input_tokens + agg.cache_creation_input_tokens;
+    }
+  };
+  walk(path.join(transcriptPath.replace(/\.jsonl$/, ''), 'subagents'));
+  return totals;
+}
+
 // --- Telemetry (append-only JSONL, never blocks) ---
 function shipConfigFile() {
   return envc('TELEMETRY_CONFIG') || path.join(repoRoot(), '.claude', 'telemetry', 'config.json');
@@ -315,7 +339,7 @@ module.exports = {
   envc, readJsonConfig, repoRoot, devenvDir, hooksConfigFile, hooksConfig,
   relPath, readInput, get, trunc, isAgentMode,
   deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, telemetryRepo, isoNow,
-  currentIssue, transcriptTail, usageTokens, aggregateUsage,
+  currentIssue, transcriptTail, usageTokens, aggregateUsage, sumSubagentUsage,
   shipConfigFile, shipSpoolFile, logEvent,
   shipEvent, run,
 };

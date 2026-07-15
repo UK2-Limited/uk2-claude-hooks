@@ -24,6 +24,7 @@ read (see the migration section in README.md).
   envelope, fire-and-forget shipping) and `scripts/lib/ship.js` (Elasticsearch
   send/spool/flush; also a CLI run detached by `shipEvent`).
 - `scripts/telemetry-backfill.js` — CLI, not a hook.
+- `scripts/telemetry-verify.js` — CLI, not a hook; read-only telemetry-vs-transcript checker.
 - `test/run.js` — the self-test suite; `test/fixtures/` — transcript + config fixtures.
 
 ## Hard rules
