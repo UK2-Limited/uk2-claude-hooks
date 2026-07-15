@@ -472,6 +472,17 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('tool_use');
   check('tool_use ok=false on failure', ev && ev.tool === 'Bash' && ev.ok === false);
   check('tool_use model null without transcript', ev && ev.model === null);
+  check('tool_use carries the bash command', ev && ev.command === 'perl -c lib/Bad.pm');
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Bash',
+    tool_input: { command: `echo ${'x'.repeat(300)}` },
+    tool_response: { exit_code: 0, stdout: '', stderr: '' },
+  });
+  ev = lastEvent('tool_use');
+  check('tool_use command truncated to 200 chars on success',
+    ev && ev.ok === true && typeof ev.command === 'string' && ev.command.length === 200);
 
   run('telemetry-posttool.js', {
     session_id: SID,
@@ -482,6 +493,7 @@ async function waitSpoolStable(timeoutMs = 10000) {
   });
   ev = lastEvent('tool_use');
   check('tool_use ok=true logged for Read', ev && ev.tool === 'Read' && ev.ok === true);
+  check('tool_use command absent on non-Bash tools', ev && ev.command === undefined);
   // The transcript tail ends with an isSidechain entry (9999s) — the pick must
   // skip it and land on msg_test2's FINAL entry (out=80, not the partial 30).
   check('tool_use carries last main-loop message tokens (skips sidechain)',

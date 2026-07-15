@@ -128,7 +128,9 @@ c.run((input) => {
   }
   const ok = !failed;
   c.logEvent(input, 'tool_use', {
-    tool, ok, message_id: msgId || null, model: msgModel || null, ...usage,
+    tool, ok, message_id: msgId || null, model: msgModel || null,
+    ...(tool === 'Bash' && cmd ? { command: c.trunc(cmd, 200) } : {}),
+    ...usage,
   });
 
   // --- skill_use: which skill was invoked (Skill tool carries the name) ---
