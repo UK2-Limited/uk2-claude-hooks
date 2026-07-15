@@ -2,3 +2,11 @@ node_modules/
 *.log
 .claude/telemetry/
 .claude/state/
+
+# Graphify Stuff
+# local only
+graphify-out/cost.json
+# optional: commit for speed, skip to keep repo small
+graphify-out/cache/
+# block all for now
+graphify-out/
