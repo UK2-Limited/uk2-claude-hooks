@@ -457,6 +457,7 @@ async function waitSpoolStable(timeoutMs = 10000) {
   check('tool_failure logged', lastEvent('tool_failure') !== null);
   ev = lastEvent('tool_use');
   check('tool_use ok=false on failure', ev && ev.tool === 'Bash' && ev.ok === false);
+  check('tool_use model null without transcript', ev && ev.model === null);
 
   run('telemetry-posttool.js', {
     session_id: SID,
@@ -472,6 +473,7 @@ async function waitSpoolStable(timeoutMs = 10000) {
   check('tool_use carries last main-loop message tokens (skips sidechain)',
     ev && ev.tokens_in === 200 && ev.tokens_out === 80
     && ev.tokens_cache_read === 20 && ev.tokens_cache_created === 0 && ev.message_id === 'msg_test2');
+  check('tool_use carries the issuing message model', ev && ev.model === 'claude-fable-5');
   check('events stamped with user+host', ev && ev.user === 'hooktest@uk2group.com'
     && typeof ev.host === 'string' && ev.host.length > 0);
   check('repo falls back to folder basename (no remote)', ev && ev.repo === path.basename(PROJ));
@@ -782,6 +784,8 @@ async function waitSpoolStable(timeoutMs = 10000) {
     ev && ev.cache_read_input_tokens === 30 && ev.input_tokens === 300);
   check('session_summary sums nested cache_creation shape (cc=5)',
     ev && ev.cache_creation_input_tokens === 5);
+  check('session_summary carries model, est_cost_usd dropped',
+    ev && ev.model === 'claude-fable-5' && !('est_cost_usd' in ev));
   check('session_summary counts + identity', ev && ev.tool_failures >= 1
     && ev.user === 'hooktest@uk2group.com' && ev.repo === 'uk2group/scratch-repo'
     && typeof ev.wall_ms === 'number');

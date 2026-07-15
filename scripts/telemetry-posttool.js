@@ -110,10 +110,13 @@ c.run((input) => {
   if (!agentId) entries = entries.filter((e) => e.isSidechain !== true);
   let usage = {};
   let msgId = '';
+  let msgModel = '';
   for (const e of entries) {
     const u = e.message && e.message.usage;
     if (u) {
       msgId = e.message.id || '';
+      const m = e.message.model;
+      if (m && m !== '<synthetic>') msgModel = m;
       const t = c.usageTokens(u);
       usage = {
         tokens_in: t.input,
@@ -124,7 +127,9 @@ c.run((input) => {
     }
   }
   const ok = !failed;
-  c.logEvent(input, 'tool_use', { tool, ok, message_id: msgId || null, ...usage });
+  c.logEvent(input, 'tool_use', {
+    tool, ok, message_id: msgId || null, model: msgModel || null, ...usage,
+  });
 
   // --- skill_use: which skill was invoked (Skill tool carries the name) ---
   if (tool === 'Skill') {

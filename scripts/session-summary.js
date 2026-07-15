@@ -35,7 +35,9 @@ c.run(async (input) => {
     total_tokens: 0,
     total_cache_tokens: 0,
     turns: 0,
-    est_cost_usd: 0,
+    // Last main-loop assistant model — a label for downstream cost estimation;
+    // mixed-model sessions should cost from tool_use events instead.
+    model: null,
   };
   if (transcript) {
     try {
@@ -50,12 +52,7 @@ c.run(async (input) => {
       tok.cache_read_input_tokens = agg.cache_read_input_tokens;
       tok.cache_creation_input_tokens = agg.cache_creation_input_tokens;
       tok.turns = agg.turns;
-      let cost = 0;
-      for (const entry of entries) {
-        const lineCost = entry.costUSD ?? entry.total_cost_usd;
-        if (typeof lineCost === 'number' && lineCost > cost) cost = lineCost;
-      }
-      tok.est_cost_usd = cost;
+      tok.model = agg.model || null;
     } catch { /* unreadable transcript -> zeros */ }
 
     // Sub-agent transcripts (Task/Agent tool, Workflow fan-outs) live under
