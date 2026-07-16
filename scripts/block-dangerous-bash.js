@@ -89,7 +89,7 @@ c.run((input) => {
   }
 
   if (reason) {
-    c.logEvent(input, 'dangerous_bash_blocked', { command: c.trunc(cmd, 300), reason });
+    c.logEvent(input, 'dangerous_bash_blocked', { command: c.trunc(c.relCmd(cmd, input), 300), reason });
     c.deny(`Refused: ${reason}. This is a destructive command the agent must not run. `
       + '(A human can set UK2_ALLOW_DANGEROUS=1 locally to override — never in CI.)');
   }

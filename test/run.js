@@ -188,6 +188,12 @@ async function waitSpoolStable(timeoutMs = 10000) {
   const dbe = lastEvent('dangerous_bash_blocked');
   check('dangerous_bash_blocked carries configured reason', dbe && dbe.reason === 'no prod deletes');
 
+  // Rules match the RAW command; only the logged event is path-normalized.
+  writeHooksCfg({ dangerousBash: { rules: [{ reason: 'abs path rule', match: [`${PROJ}/secret`] }] } });
+  dbRun(`cat ${PROJ}/secret/f`); wantDeny('rule matches raw absolute path');
+  const dbs = lastEvent('dangerous_bash_blocked');
+  check('dangerous_bash_blocked command is path-normalized', dbs && dbs.command === 'cat secret/f');
+
   writeHooksCfg({ dangerousBash: { rules: [
     { reason: 'broken', match: ['('] },
     { reason: 'no shutdowns', match: ['shutdown'] },
@@ -483,6 +489,50 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('tool_use');
   check('tool_use command truncated to 200 chars on success',
     ev && ev.ok === true && typeof ev.command === 'string' && ev.command.length === 200);
+
+  // Path normalization: prefixes under the project dir strip to relative
+  // paths, a bare cwd becomes '.', sibling dirs stay untouched, and $HOME
+  // folds to '~' — all before truncation.
+  const bashOk = (command, extra = {}) => run('telemetry-posttool.js', {
+    session_id: SID, tool_name: 'Bash', tool_input: { command },
+    tool_response: { exit_code: 0, stdout: '', stderr: '' }, ...extra,
+  });
+  bashOk(`sed -n 1,5p ${PROJ}/lib/Foo.pm`);
+  ev = lastEvent('tool_use');
+  check('tool_use command strips project-dir prefix', ev && ev.command === 'sed -n 1,5p lib/Foo.pm');
+  bashOk(`cd ${PROJ} && ls`);
+  ev = lastEvent('tool_use');
+  check('tool_use bare cwd becomes .', ev && ev.command === 'cd . && ls');
+  bashOk(`ls ${PROJ}-other/x`);
+  ev = lastEvent('tool_use');
+  const sibling = `${PROJ}-other/x`.startsWith(`${os.homedir()}/`)
+    ? `~${PROJ.slice(os.homedir().length)}-other/x` : `${PROJ}-other/x`;
+  check('tool_use sibling dir not mistaken for cwd', ev && ev.command === `ls ${sibling}`);
+  bashOk(`cat ${os.homedir()}/elsewhere/f`);
+  ev = lastEvent('tool_use');
+  check('tool_use $HOME folds to ~', ev && ev.command === 'cat ~/elsewhere/f');
+  bashOk('make -C /srv/build/app', { cwd: '/srv/build' });
+  ev = lastEvent('tool_use');
+  check('tool_use payload cwd is stripped too', ev && ev.command === 'make -C app');
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Bash',
+    tool_input: { command: `perl -c ${PROJ}/lib/Bad.pm` },
+    tool_response: { exit_code: 255, stdout: '', stderr: 'syntax error.' },
+  });
+  ev = lastEvent('tool_failure');
+  check('tool_failure command is path-normalized', ev && ev.command === 'perl -c lib/Bad.pm');
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Bash',
+    tool_input: { command: `prove ${PROJ}/t/foo.t` },
+    tool_response: { exit_code: 0, stdout: 'ok 1 - a\nFiles=1, Tests=1,  1 wallclock secs', stderr: '' },
+  });
+  ev = lastEvent('test_run');
+  check('test_run command and target are path-normalized',
+    ev && ev.command === 'prove t/foo.t' && ev.target === 't/foo.t');
 
   run('telemetry-posttool.js', {
     session_id: SID,

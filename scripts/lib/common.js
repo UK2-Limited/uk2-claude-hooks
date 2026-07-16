@@ -67,6 +67,31 @@ function relPath(p) {
   return p.startsWith(`${root}/`) ? p.slice(root.length + 1) : p;
 }
 
+// relCmd: strips user-specific path prefixes from a shell command so identical
+// commands aggregate across users/checkouts in the telemetry index. Paths under
+// the session cwd (hook payload `cwd`) or repoRoot() become relative, a bare
+// cwd becomes '.', and any remaining $HOME prefix folds to '~'.
+function relCmd(cmd, input) {
+  let out = String(cmd);
+  const home = os.homedir();
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Boundary lookahead so /path/to/proj-other is never mistaken for /path/to/proj.
+  const boundary = '(?=[\\s"\'`;)&|]|$)';
+  const roots = [...new Set(
+    [String(get(input, 'cwd') || ''), repoRoot()].map((d) => d.replace(/\/+$/, '')),
+  )]
+    .filter((d) => d && d !== '/' && d !== home)
+    .sort((a, b) => b.length - a.length);
+  for (const root of roots) {
+    out = out.replace(new RegExp(`${esc(root)}/`, 'g'), '');
+    out = out.replace(new RegExp(esc(root) + boundary, 'g'), '.');
+  }
+  if (home && home !== '/') {
+    out = out.replace(new RegExp(`${esc(home)}(?=/|[\\s"'\`;)&|]|$)`, 'g'), '~');
+  }
+  return out;
+}
+
 // --- stdin ---
 function readInput() {
   try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return {}; }
@@ -337,7 +362,7 @@ function run(fn) {
 
 module.exports = {
   envc, readJsonConfig, repoRoot, devenvDir, hooksConfigFile, hooksConfig,
-  relPath, readInput, get, trunc, isAgentMode,
+  relPath, relCmd, readInput, get, trunc, isAgentMode,
   deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, telemetryRepo, isoNow,
   currentIssue, transcriptTail, usageTokens, aggregateUsage, sumSubagentUsage,
   shipConfigFile, shipSpoolFile, logEvent,

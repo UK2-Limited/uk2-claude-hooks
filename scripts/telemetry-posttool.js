@@ -56,7 +56,9 @@ c.run((input) => {
   const tool = c.get(input, 'tool_name');
   if (!tool) return;
   const exitCode = c.get(input, 'tool_response.exit_code');
-  const cmd = String(c.get(input, 'tool_input.command') || '');
+  // Commands are logged with user-specific path prefixes stripped (cwd ->
+  // relative, $HOME -> ~) so identical commands aggregate across checkouts.
+  const cmd = c.relCmd(String(c.get(input, 'tool_input.command') || ''), input);
 
   // --- test_run: scripts/test_this or a bare `prove` invocation ---
   if (tool === 'Bash' && /(test_this|(^|\s)prove(\s|$))/.test(cmd)) {
