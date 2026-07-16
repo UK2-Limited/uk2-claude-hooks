@@ -489,6 +489,7 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('tool_use');
   check('tool_use command truncated to 200 chars on success',
     ev && ev.ok === true && typeof ev.command === 'string' && ev.command.length === 200);
+  check('tool_use file_path absent on Bash', ev && ev.file_path === undefined);
 
   // Path normalization: prefixes under the project dir strip to relative
   // paths, a bare cwd becomes '.', sibling dirs stay untouched, and $HOME
@@ -514,6 +515,25 @@ async function waitSpoolStable(timeoutMs = 10000) {
   bashOk('make -C /srv/build/app', { cwd: '/srv/build' });
   ev = lastEvent('tool_use');
   check('tool_use payload cwd is stripped too', ev && ev.command === 'make -C app');
+
+  // file_path on tool_use gets the same normalization as commands.
+  const readOk = (file_path) => run('telemetry-posttool.js', {
+    session_id: SID, tool_name: 'Read', tool_input: { file_path }, tool_response: {},
+  });
+  readOk(`${PROJ}/lib/Foo.pm`);
+  ev = lastEvent('tool_use');
+  check('tool_use file_path strips project-dir prefix', ev && ev.file_path === 'lib/Foo.pm');
+  readOk(`${os.homedir()}/elsewhere/notes.md`);
+  ev = lastEvent('tool_use');
+  check('tool_use file_path $HOME folds to ~', ev && ev.file_path === '~/elsewhere/notes.md');
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'NotebookEdit',
+    tool_input: { notebook_path: `${PROJ}/nb/analysis.ipynb` },
+    tool_response: {},
+  });
+  ev = lastEvent('tool_use');
+  check('tool_use file_path from notebook_path', ev && ev.file_path === 'nb/analysis.ipynb');
 
   run('telemetry-posttool.js', {
     session_id: SID,
@@ -544,6 +564,7 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('tool_use');
   check('tool_use ok=true logged for Read', ev && ev.tool === 'Read' && ev.ok === true);
   check('tool_use command absent on non-Bash tools', ev && ev.command === undefined);
+  check('tool_use file_path logged for Read', ev && ev.file_path === 'lib/Foo.pm');
   // The transcript tail ends with an isSidechain entry (9999s) — the pick must
   // skip it and land on msg_test2's FINAL entry (out=80, not the partial 30).
   check('tool_use carries last main-loop message tokens (skips sidechain)',

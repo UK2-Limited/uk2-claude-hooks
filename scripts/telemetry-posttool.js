@@ -129,9 +129,13 @@ c.run((input) => {
     }
   }
   const ok = !failed;
+  // File-path tools (Read/Edit/Write/MultiEdit/NotebookEdit) carry the target
+  // file, normalized like commands (cwd/repo-root stripped, $HOME -> ~).
+  const filePath = c.get(input, 'tool_input.file_path') || c.get(input, 'tool_input.notebook_path');
   c.logEvent(input, 'tool_use', {
     tool, ok, message_id: msgId || null, model: msgModel || null,
     ...(tool === 'Bash' && cmd ? { command: c.trunc(cmd, 200) } : {}),
+    ...(filePath ? { file_path: c.trunc(c.relCmd(String(filePath), input), 300) } : {}),
     ...usage,
   });
 
@@ -183,7 +187,6 @@ c.run((input) => {
   // ({type:'create', content, originalFile:null}), so lines come from the
   // accepted content instead.
   if (ok && ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) {
-    const filePath = c.get(input, 'tool_input.file_path') || c.get(input, 'tool_input.notebook_path');
     if (filePath) {
       let linesAdded = null;
       let linesRemoved = null;
