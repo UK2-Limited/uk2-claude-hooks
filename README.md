@@ -177,6 +177,24 @@ paths), `UK2_AGENT_MODE` (enables the hard gates; `CI=true` does too), `UK2_ISSU
 attribution), `UK2_DEVENV_DIR` (where docker-compose lives for compile-check's default
 step; default `<project>/..`), plus the four gate kill switches above.
 
+## Grafana dashboard
+
+[`grafana/claude-telemetry-dashboard.json`](grafana/claude-telemetry-dashboard.json) is a
+portable import template for the "Claude Code Telemetry" dashboard (usage & tokens, test
+health, guardrail friction, tool/skill/agent usage). To import it on any Grafana:
+
+1. Add an Elasticsearch datasource pointing at the telemetry index (default
+   `claude-telemetry`, time field `ts`).
+2. Dashboards → New → Import → upload the JSON (or paste it).
+3. When prompted, select that Elasticsearch datasource for the
+   `Elasticsearch (claude telemetry index)` input.
+
+Every panel respects the `Branch`, `User`, and `Host` filter variables (multi-select,
+default All). They filter on the `branch`, `user`, and `host` fields that every event
+carries, so documents shipped by versions of the hooks that predate any of those fields
+drop out of filtered panels — re-ship old local JSONL with `telemetry-backfill.js` if
+counts look low.
+
 ## Migrating from `hooks.env` / `config.env`
 
 **Breaking change**: the plugin no longer reads the shell-style
