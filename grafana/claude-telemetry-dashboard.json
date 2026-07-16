@@ -159,7 +159,7 @@
               "type": "cardinality"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:session_summary",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:session_summary",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -248,7 +248,7 @@
               "type": "sum"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:session_summary",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:session_summary",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -336,7 +336,7 @@
               "type": "sum"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:session_summary",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:session_summary",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -444,7 +444,7 @@
               "type": "sum"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene}",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene}",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -593,7 +593,7 @@
               "type": "sum"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene}",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene}",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -728,7 +728,7 @@
               "type": "sum"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:session_summary",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:session_summary",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -863,7 +863,7 @@
               "type": "sum"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:session_summary",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:session_summary",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -1029,7 +1029,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run AND failed:0",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run AND failed:0",
           "queryType": "lucene",
           "timeField": "ts"
         },
@@ -1059,7 +1059,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run AND NOT failed:0",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run AND NOT failed:0",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -1183,7 +1183,7 @@
               "type": "avg"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -1289,7 +1289,7 @@
               "type": "avg"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -1381,7 +1381,7 @@
               "type": "sum"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -1473,7 +1473,7 @@
               "type": "sum"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_run",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -1619,7 +1619,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:(tool_failure OR compile_fail OR test_integrity OR dangerous_bash_blocked OR stop_gate_exhausted OR protected_deny OR protected_warn)",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:(tool_failure OR compile_fail OR test_integrity OR dangerous_bash_blocked OR stop_gate_exhausted OR protected_deny OR protected_warn)",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -1713,7 +1713,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_failure",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_failure",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -1796,7 +1796,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:compile_fail",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:compile_fail",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -1870,7 +1870,7 @@
               "type": "raw_data"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:(dangerous_bash_blocked OR test_integrity OR stop_gate_exhausted OR protected_deny OR protected_warn)",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:(dangerous_bash_blocked OR test_integrity OR stop_gate_exhausted OR protected_deny OR protected_warn)",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -1992,7 +1992,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:dangerous_bash_blocked",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:dangerous_bash_blocked",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -2084,7 +2084,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_integrity",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_integrity",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -2176,7 +2176,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:protected_deny",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:protected_deny",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -2268,7 +2268,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:protected_warn",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:protected_warn",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -2360,7 +2360,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:stop_gate_exhausted",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:stop_gate_exhausted",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -2454,7 +2454,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:dangerous_bash_blocked",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:dangerous_bash_blocked",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -2548,7 +2548,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_integrity",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:test_integrity",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -2653,7 +2653,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:(protected_deny OR protected_warn)",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:(protected_deny OR protected_warn)",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -2753,7 +2753,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -2845,7 +2845,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND ok:false",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND ok:false",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -2933,7 +2933,7 @@
               "type": "cardinality"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -3016,7 +3016,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use",
           "queryType": "lucene",
           "timeField": "ts"
         },
@@ -3047,7 +3047,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND ok:false",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND ok:false",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -3180,7 +3180,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -3313,7 +3313,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND ok:false",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND ok:false",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -3413,7 +3413,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:skill_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:skill_use",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -3496,7 +3496,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:skill_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:skill_use",
           "queryType": "lucene",
           "timeField": "ts"
         },
@@ -3527,7 +3527,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND ok:false",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND ok:false",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -3615,7 +3615,7 @@
               "type": "cardinality"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:skill_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:skill_use",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -3748,7 +3748,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:skill_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:skill_use",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -3848,7 +3848,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:agent_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:agent_use",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -3931,7 +3931,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:agent_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:agent_use",
           "queryType": "lucene",
           "timeField": "ts"
         },
@@ -3962,7 +3962,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND ok:false",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND ok:false",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -4050,7 +4050,7 @@
               "type": "cardinality"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:agent_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:agent_use",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -4183,7 +4183,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:agent_use",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:agent_use",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -4285,7 +4285,7 @@
               "type": "sum"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:edit",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:edit",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -4379,7 +4379,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene}",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene}",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -4522,7 +4522,7 @@
               "type": "count"
             }
           ],
-          "query": "branch:${branch:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:edit",
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:edit",
           "queryType": "lucene",
           "timeField": "ts"
         }
@@ -4548,6 +4548,30 @@
           "uid": "${DS_ELASTICSEARCH}"
         },
         "query": "{\"find\": \"terms\", \"field\": \"branch\"}",
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": "*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "name": "repo",
+        "label": "Repo",
+        "type": "query",
+        "datasource": {
+          "type": "elasticsearch",
+          "uid": "${DS_ELASTICSEARCH}"
+        },
+        "query": "{\"find\":\"terms\",\"field\":\"repo\"}",
         "refresh": 2,
         "regex": "",
         "sort": 1,

@@ -189,9 +189,9 @@ health, guardrail friction, tool/skill/agent usage). To import it on any Grafana
 3. When prompted, select that Elasticsearch datasource for the
    `Elasticsearch (claude telemetry index)` input.
 
-Every panel respects the `Branch`, `User`, and `Host` filter variables (multi-select,
-default All). They filter on the `branch`, `user`, and `host` fields that every event
-carries, so documents shipped by versions of the hooks that predate any of those fields
+Every panel respects the `Branch`, `Repo`, `User`, and `Host` filter variables
+(multi-select, default All). They filter on the `branch`, `repo`, `user`, and `host`
+fields that every event carries, so documents shipped by versions of the hooks that predate any of those fields
 drop out of filtered panels — re-ship old local JSONL with `telemetry-backfill.js` if
 counts look low.
 
