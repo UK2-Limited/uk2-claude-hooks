@@ -77,6 +77,15 @@ c.run((input) => {
     });
   }
 
+  // File-path tools (Read/Edit/Write/MultiEdit/NotebookEdit) carry the target
+  // file; when it lives in a first-level subfolder repo of the session root
+  // (multi-repo workspace), the event is attributed to THAT repo/branch and
+  // file_path is relative to it. Otherwise: session attribution, path
+  // normalized like commands (cwd/repo-root stripped, $HOME -> ~).
+  const filePath = String(c.get(input, 'tool_input.file_path') || c.get(input, 'tool_input.notebook_path') || '');
+  const fInfo = filePath ? c.gitInfoFor(filePath) : null;
+  const fileOpts = filePath ? { attributePath: filePath } : {};
+
   // --- tool_failure: any non-zero Bash, or an error response on another tool ---
   let failed = false;
   if (exitCode !== '' && Number(exitCode) !== 0) failed = true;
@@ -90,7 +99,7 @@ c.run((input) => {
       exit_code: exitCode === '' ? null : exitCode,
       command: c.trunc(cmd, 200),
       error_summary: c.trunc(errsum, 300),
-    });
+    }, fileOpts);
   }
 
   // --- tool_use: one line per tool call, for usage stats ---
@@ -129,15 +138,12 @@ c.run((input) => {
     }
   }
   const ok = !failed;
-  // File-path tools (Read/Edit/Write/MultiEdit/NotebookEdit) carry the target
-  // file, normalized like commands (cwd/repo-root stripped, $HOME -> ~).
-  const filePath = c.get(input, 'tool_input.file_path') || c.get(input, 'tool_input.notebook_path');
   c.logEvent(input, 'tool_use', {
     tool, ok, message_id: msgId || null, model: msgModel || null,
     ...(tool === 'Bash' && cmd ? { command: c.trunc(cmd, 200) } : {}),
-    ...(filePath ? { file_path: c.trunc(c.relCmd(String(filePath), input), 300) } : {}),
+    ...(filePath ? { file_path: c.trunc(fInfo ? fInfo.relPath : c.relCmd(filePath, input), 300) } : {}),
     ...usage,
-  });
+  }, fileOpts);
 
   // --- skill_use: which skill was invoked (Skill tool carries the name) ---
   if (tool === 'Skill') {
@@ -209,11 +215,11 @@ c.run((input) => {
       }
       c.logEvent(input, 'edit', {
         tool,
-        file_path: c.relPath(String(filePath)),
+        file_path: fInfo ? fInfo.relPath : c.relPath(filePath),
         lines_added: linesAdded,
         lines_removed: linesRemoved,
         permission_mode: c.get(input, 'permission_mode') || null,
-      });
+      }, fileOpts);
     }
   }
 });

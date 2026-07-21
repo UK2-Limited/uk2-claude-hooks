@@ -176,15 +176,54 @@ function telemetryHost() {
 // "org/repo" from the origin remote (checkout-name agnostic, so the shared
 // index aggregates across machines); folder basename when there is no remote
 // or no git repo at all.
-function telemetryRepo() {
-  const url = gitOut(['remote', 'get-url', 'origin']);
+function telemetryRepo(root = repoRoot()) {
+  const url = gitOut(['remote', 'get-url', 'origin'], root);
   if (url) {
     // git@host:org/repo.git | https://host/org/repo.git | ssh://git@host:port/org/repo.git
     const m = url.replace(/\.git\/?$/, '')
       .match(/^(?:[a-z+]+:\/\/)?(?:[^@/]+@)?[^:/]+(?::\d+)?[:/](.+)$/i);
     if (m && m[1]) return m[1].replace(/^\/+/, '');
   }
-  return path.basename(repoRoot());
+  return path.basename(root);
+}
+
+// Per-file git attribution for workspace layouts: the session root contains
+// first-level subfolders (possibly symlinks) that are each their own checkout.
+// Detection is deliberately 1 level deep — a repo nested deeper never
+// fragments attribution, and files outside the session root are untouched.
+// Returns {repo, branch, root, relPath} for the subfolder repo containing
+// absPath, or null (caller keeps session-root attribution).
+const gitInfoBySeg = new Map(); // first path segment -> {repo, branch, dir} | null
+function gitInfoFor(absPath) {
+  try {
+    const p = String(absPath || '');
+    const root = repoRoot().replace(/\/+$/, '');
+    if (!path.isAbsolute(p) || !p.startsWith(`${root}/`)) return null;
+    const rel = p.slice(root.length + 1);
+    const seg = rel.split('/')[0];
+    if (!seg || !rel.includes('/')) return null; // file sits directly in the root
+    let e = gitInfoBySeg.get(seg);
+    if (e === undefined) {
+      e = null;
+      const dir = path.join(root, seg);
+      // --show-toplevel prints the PHYSICAL path, so comparing against
+      // realpath(dir) both follows a symlinked subfolder and rejects a plain
+      // folder whose containing repo is the session root itself.
+      const top = gitOut(['rev-parse', '--show-toplevel'], dir);
+      let real = '';
+      try { real = fs.realpathSync(dir); } catch { /* dir gone */ }
+      if (top && real && top === real) {
+        e = {
+          dir,
+          repo: telemetryRepo(top),
+          branch: gitOut(['rev-parse', '--abbrev-ref', 'HEAD'], top) || 'unknown',
+        };
+      }
+      gitInfoBySeg.set(seg, e);
+    }
+    if (!e) return null;
+    return { repo: e.repo, branch: e.branch, root: e.dir, relPath: rel.slice(seg.length + 1) };
+  } catch { return null; }
 }
 
 function isoNow() { return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'); }
@@ -302,20 +341,24 @@ function shipSpoolFile() {
   return envc('TELEMETRY_SPOOL') || path.join(repoRoot(), '.claude', 'telemetry', 'unshipped.jsonl');
 }
 
-// logEvent(input, <event-type>, <extra-fields>)
-function logEvent(input, event, extra = {}) {
+// logEvent(input, <event-type>, <extra-fields>, {attributePath})
+// opts.attributePath: absolute path of the file a tool touched — when it lives
+// in a first-level subfolder repo of the session root (multi-repo workspace),
+// repo/branch describe THAT repo instead of the session root.
+function logEvent(input, event, extra = {}, opts = {}) {
   try {
     const sid = get(input, 'session_id') || 'nosession';
     const issue = currentIssue();
     // agent_id is present in the hook payload only when the call was made by a
     // sub-agent (Task/Agent tool, Workflow fan-outs); session_id stays the parent's.
     const agentId = get(input, 'agent_id') || null;
+    const fileInfo = opts.attributePath ? gitInfoFor(opts.attributePath) : null;
     const line = JSON.stringify({
       ts: isoNow(),
       event,
       session_id: sid,
-      branch: gitOut(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown',
-      repo: telemetryRepo(),
+      branch: fileInfo ? fileInfo.branch : (gitOut(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown'),
+      repo: fileInfo ? fileInfo.repo : telemetryRepo(),
       user: telemetryUser(),
       host: telemetryHost(),
       issue: issue || null,
@@ -363,7 +406,7 @@ function run(fn) {
 module.exports = {
   envc, readJsonConfig, repoRoot, devenvDir, hooksConfigFile, hooksConfig,
   relPath, relCmd, readInput, get, trunc, isAgentMode,
-  deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, telemetryRepo, isoNow,
+  deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, telemetryRepo, gitInfoFor, isoNow,
   currentIssue, transcriptTail, usageTokens, aggregateUsage, sumSubagentUsage,
   shipConfigFile, shipSpoolFile, logEvent,
   shipEvent, run,

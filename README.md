@@ -229,14 +229,24 @@ from the origin remote URL; folder basename when there is no remote/repo), `user
 `UK2_ISSUE` or `.claude/state/ticket.json`, else null), `subagent` (`true` when the
 event came from a tool call made by a sub-agent — Task/Agent tool or Workflow
 fan-outs; hooks fire for those too, under the parent's `session_id`) and `agent_id`
-(the sub-agent's id, `null` for main-loop events). Per-type fields:
+(the sub-agent's id, `null` for main-loop events).
+
+`repo`/`branch` normally describe the session root. Exception (since 2026-07):
+for file-touching events (`tool_use`/`edit` carrying a `file_path`, and
+`tool_failure` on file-path tools), when the touched file lives under a
+**first-level subfolder of the session root that is itself a git checkout**
+(nested or symlinked — the multi-repo "workspace" layout), `repo`/`branch`
+describe that subfolder's repo and its current branch, and `file_path` is
+relative to that subfolder. Detection is exactly one level deep; everything
+else (deeper nesting, files outside the root, non-file events) keeps
+session-root attribution. Per-type fields:
 
 | Event | Fields |
 |---|---|
 | `tool_use` | `tool`, `ok`, `message_id`, `model` (of the issuing assistant message; `null` when unknown), `command` (Bash calls only — first 200 chars, path-normalized per the note below; absent on other tools), `file_path` (file-path tools only — Read/Edit/Write/MultiEdit/NotebookEdit, from the call's `file_path`/`notebook_path` input; first 300 chars, path-normalized per the note below; absent on other tools), `tokens_in/out`, `tokens_cache_read/created`. Token counts are those of the assistant **message** that issued the call — parallel tool calls in one message share the numbers, so dedupe on `message_id` when summing (that also makes `tool_use` the right source for per-model cost). For sub-agent calls (`subagent: true`) the counts come from the sub-agent's own transcript; `null` when that transcript can't be found. |
 | `skill_use` | `skill`, `args` (truncated), `ok` |
 | `agent_use` | `agent_type`, `description`, `model`, `model_source` (`override` = explicit in the call, `agent-def` = agent frontmatter, `session` = inherited session model inferred from the transcript), `spawned_agent_id` (the launched sub-agent's id — join it against other events' `agent_id`; `null` when the response doesn't carry one), `ok` |
-| `edit` | `tool`, `file_path` (repo-relative), `lines_added`, `lines_removed`, `permission_mode` — counted from the tool's `structuredPatch`; for a Write that creates a new file (empty patch) `lines_added` is counted from the accepted content; both counts `null` when no patch is available (e.g. NotebookEdit). Emitted only for **successful** Edit/Write/MultiEdit/NotebookEdit calls; failed edits show up as `tool_failure` instead. |
+| `edit` | `tool`, `file_path` (repo-relative — relative to the subfolder checkout when re-attributed per the workspace note above), `lines_added`, `lines_removed`, `permission_mode` — counted from the tool's `structuredPatch`; for a Write that creates a new file (empty patch) `lines_added` is counted from the accepted content; both counts `null` when no patch is available (e.g. NotebookEdit). Emitted only for **successful** Edit/Write/MultiEdit/NotebookEdit calls; failed edits show up as `tool_failure` instead. |
 | `test_run` | `command`, `target`, `exit_code`, `passed`, `failed`, `tests_run`, `duration_ms` |
 | `tool_failure` | `tool`, `exit_code`, `command`, `error_summary` |
 | `compile_fail` | `file`, `error`; configured steps add `step`, `cmd` |
@@ -248,7 +258,8 @@ Note: the `command` fields (`tool_use`, `tool_failure`, `test_run`,
 truncation** so identical commands aggregate across users/checkouts: paths under
 the session working directory become relative, a bare cwd becomes `.`, and a
 remaining `$HOME` prefix folds to `~` (since 2026-07; earlier events carry
-absolute paths).
+absolute paths). A `file_path` re-attributed to a first-level subfolder checkout
+(workspace note above) is relative to that subfolder instead (since 2026-07).
 They and `skill_use.args` still ship **unredacted** — treat the index
 accordingly (same caveat the in-repo bash hooks had).
 

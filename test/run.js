@@ -812,6 +812,102 @@ async function waitSpoolStable(timeoutMs = 10000) {
   });
   check('edit skipped when no file path in tool_input', events('edit').length === editsBefore);
 
+  console.log('== multi-repo workspace attribution ==');
+  // Session root (PROJ) holding first-level subfolder checkouts: file-touching
+  // events are attributed to the subfolder's repo/branch with a subfolder-
+  // relative file_path; detection is deliberately one level deep.
+  const initScratchRepo = (dir, branch, remote) => {
+    fs.mkdirSync(dir, { recursive: true });
+    const g = (...args) => execFileSync('git', ['-C', dir, ...args], { stdio: ['ignore', 'ignore', 'ignore'] });
+    g('init', '-q', '-b', branch);
+    g('config', 'user.email', 'hooktest@uk2group.com');
+    g('config', 'user.name', 'Hook Test');
+    g('config', 'commit.gpgsign', 'false');
+    g('commit', '-q', '--allow-empty', '-m', 'init');
+    if (remote) g('remote', 'add', 'origin', remote);
+    return g;
+  };
+  const SUB = path.join(PROJ, 'SubOne');
+  const gitSub = initScratchRepo(SUB, 'feature/nested', 'git@github.com:org/nested-repo.git');
+  fs.mkdirSync(path.join(SUB, 'src'), { recursive: true });
+  // Checkout living OUTSIDE the workspace, reached through a symlinked
+  // subfolder; no remote, so repo falls back to the PHYSICAL folder basename.
+  const EXT = fs.mkdtempSync(path.join(os.tmpdir(), 'uk2-hooks-ext-'));
+  process.on('exit', () => { try { fs.rmSync(EXT, { recursive: true, force: true }); } catch { /* best effort */ } });
+  const LINKED = path.join(EXT, 'linked-repo');
+  initScratchRepo(LINKED, 'link-branch');
+  let haveSymlink = true;
+  try { fs.symlinkSync(LINKED, path.join(PROJ, 'LinkedRepo'), 'dir'); } catch { haveSymlink = false; }
+  // A repo nested TWO levels down must never be detected (1-deep limit).
+  initScratchRepo(path.join(PROJ, 'plain', 'inner-repo'), 'inner-branch');
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Edit',
+    tool_input: { file_path: path.join(SUB, 'src', 'x.js'), old_string: 'a', new_string: 'b' },
+    tool_response: { filePath: path.join(SUB, 'src', 'x.js'), structuredPatch: [{ lines: ['+n'] }] },
+  });
+  ev = lastEvent('tool_use');
+  check('workspace tool_use attributed to subfolder repo/branch',
+    ev && ev.repo === 'org/nested-repo' && ev.branch === 'feature/nested');
+  check('workspace tool_use file_path is subfolder-relative', ev && ev.file_path === 'src/x.js');
+  ev = lastEvent('edit');
+  check('workspace edit attributed to subfolder repo/branch',
+    ev && ev.repo === 'org/nested-repo' && ev.branch === 'feature/nested' && ev.file_path === 'src/x.js');
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Edit',
+    tool_input: { file_path: path.join(SUB, 'src', 'x.js'), old_string: 'x', new_string: 'y' },
+    tool_response: { error: 'String to replace not found' },
+  });
+  ev = lastEvent('tool_failure');
+  check('workspace tool_failure attributed to subfolder repo',
+    ev && ev.repo === 'org/nested-repo' && ev.branch === 'feature/nested');
+
+  if (haveSymlink) {
+    readOk(path.join(PROJ, 'LinkedRepo', 'deep', 'y.js'));
+    ev = lastEvent('tool_use');
+    check('symlinked subfolder attributed to physical repo (basename fallback)',
+      ev && ev.repo === 'linked-repo' && ev.branch === 'link-branch');
+    check('symlinked subfolder file_path relative to the link', ev && ev.file_path === 'deep/y.js');
+  } else {
+    skip('symlinked subfolder attributed to physical repo (symlinks unavailable)');
+    skip('symlinked subfolder file_path relative to the link (symlinks unavailable)');
+  }
+
+  readOk(path.join(PROJ, 'plain', 'inner-repo', 'z.js'));
+  ev = lastEvent('tool_use');
+  check('repo nested two levels down keeps session attribution (1-deep limit)',
+    ev && ev.repo === 'uk2group/scratch-repo' && ev.branch === 'main'
+    && ev.file_path === 'plain/inner-repo/z.js');
+
+  readOk(path.join(PROJ, 'lib', 'Foo.pm'));
+  ev = lastEvent('tool_use');
+  check('plain subfolder keeps session attribution + normalization',
+    ev && ev.repo === 'uk2group/scratch-repo' && ev.file_path === 'lib/Foo.pm');
+
+  readOk(path.join(PROJ, 'top.md'));
+  ev = lastEvent('tool_use');
+  check('file directly in the session root keeps session attribution',
+    ev && ev.repo === 'uk2group/scratch-repo' && ev.file_path === 'top.md');
+
+  readOk(path.join(LINKED, 'deep', 'y.js'));
+  ev = lastEvent('tool_use');
+  check('file outside the session root keeps session attribution',
+    ev && ev.repo === 'uk2group/scratch-repo' && ev.branch === 'main');
+
+  bashOk(`ls ${SUB}`);
+  ev = lastEvent('tool_use');
+  check('Bash keeps session attribution in a workspace',
+    ev && ev.repo === 'uk2group/scratch-repo' && ev.branch === 'main');
+
+  gitSub('checkout', '-q', '--detach');
+  readOk(path.join(SUB, 'src', 'x.js'));
+  ev = lastEvent('tool_use');
+  check('detached HEAD in subfolder logs branch=HEAD',
+    ev && ev.repo === 'org/nested-repo' && ev.branch === 'HEAD');
+
   console.log('== telemetry shipping ==');
   const failPayload = {
     session_id: SID,
