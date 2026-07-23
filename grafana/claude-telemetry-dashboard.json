@@ -3321,6 +3321,694 @@
       "transformations": []
     },
     {
+      "id": 107,
+      "type": "row",
+      "title": "Bash Details (commands)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 83
+      },
+      "panels": []
+    },
+    {
+      "id": 47,
+      "type": "stat",
+      "title": "Bash calls",
+      "description": "Bash tool invocations",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_ELASTICSEARCH}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 84
+      },
+      "links": [],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "",
+          "bucketAggs": [
+            {
+              "id": "20",
+              "settings": {
+                "filters": [
+                  {
+                    "label": "total",
+                    "query": "*"
+                  }
+                ]
+              },
+              "type": "filters"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND tool:Bash",
+          "queryType": "lucene",
+          "timeField": "ts"
+        }
+      ],
+      "transformations": []
+    },
+    {
+      "id": 48,
+      "type": "stat",
+      "title": "Unique programs",
+      "description": "Distinct command_programs values (program + subcommand)",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_ELASTICSEARCH}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 84
+      },
+      "links": [],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "",
+          "bucketAggs": [
+            {
+              "id": "20",
+              "settings": {
+                "filters": [
+                  {
+                    "label": "total",
+                    "query": "*"
+                  }
+                ]
+              },
+              "type": "filters"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "1",
+              "type": "cardinality",
+              "field": "command_programs"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND tool:Bash",
+          "queryType": "lucene",
+          "timeField": "ts"
+        }
+      ],
+      "transformations": []
+    },
+    {
+      "id": 49,
+      "type": "stat",
+      "title": "Failed bash calls",
+      "description": "Bash calls with a non-zero exit code",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_ELASTICSEARCH}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 84
+      },
+      "links": [],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "",
+          "bucketAggs": [
+            {
+              "id": "20",
+              "settings": {
+                "filters": [
+                  {
+                    "label": "total",
+                    "query": "*"
+                  }
+                ]
+              },
+              "type": "filters"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND tool:Bash AND ok:false",
+          "queryType": "lucene",
+          "timeField": "ts"
+        }
+      ],
+      "transformations": []
+    },
+    {
+      "id": 50,
+      "type": "table",
+      "title": "Top command programs",
+      "description": "Per pipeline stage across chained commands (command_programs). \"failed\" counts calls whose whole chain exited non-zero.",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_ELASTICSEARCH}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 84
+      },
+      "links": [],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "",
+          "bucketAggs": [
+            {
+              "field": "command_programs",
+              "id": "21",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "1",
+                "size": "30"
+              },
+              "type": "terms"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND tool:Bash",
+          "queryType": "lucene",
+          "timeField": "ts"
+        },
+        {
+          "refId": "B",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "failed",
+          "bucketAggs": [
+            {
+              "field": "command_programs",
+              "id": "21",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "1",
+                "size": "30"
+              },
+              "type": "terms"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND tool:Bash AND ok:false",
+          "queryType": "lucene",
+          "timeField": "ts"
+        }
+      ],
+      "transformations": []
+    },
+    {
+      "id": 51,
+      "type": "table",
+      "title": "Top command segments",
+      "description": "Chained commands split at top-level ;/&&/|| (command_segments), path-normalized.",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_ELASTICSEARCH}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 88
+      },
+      "links": [],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "",
+          "bucketAggs": [
+            {
+              "field": "command_segments",
+              "id": "21",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "1",
+                "size": "25"
+              },
+              "type": "terms"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND tool:Bash",
+          "queryType": "lucene",
+          "timeField": "ts"
+        }
+      ],
+      "transformations": []
+    },
+    {
+      "id": 52,
+      "type": "timeseries",
+      "title": "Bash calls over time by program",
+      "description": "Top command_programs bucketed over time",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_ELASTICSEARCH}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 96
+      },
+      "links": [],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "",
+          "bucketAggs": [
+            {
+              "field": "command_programs",
+              "id": "21",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "_count",
+                "size": "10"
+              },
+              "type": "terms"
+            },
+            {
+              "field": "ts",
+              "id": "22",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0",
+                "trimEdges": "0"
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND tool:Bash",
+          "queryType": "lucene",
+          "timeField": "ts"
+        }
+      ],
+      "transformations": []
+    },
+    {
+      "id": 53,
+      "type": "table",
+      "title": "Top failing commands",
+      "description": "Full (truncated) command strings of Bash calls that exited non-zero.",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_ELASTICSEARCH}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 96
+      },
+      "links": [],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "",
+          "bucketAggs": [
+            {
+              "field": "command",
+              "id": "21",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "1",
+                "size": "20"
+              },
+              "type": "terms"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene} AND event:tool_use AND tool:Bash AND ok:false",
+          "queryType": "lucene",
+          "timeField": "ts"
+        }
+      ],
+      "transformations": []
+    },
+    {
       "id": 104,
       "type": "row",
       "title": "Skills Usage",
@@ -3329,7 +4017,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 83
+        "y": 104
       },
       "panels": []
     },
@@ -3346,7 +4034,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 84
+        "y": 105
       },
       "links": [],
       "fieldConfig": {
@@ -3433,7 +4121,7 @@
         "h": 9,
         "w": 20,
         "x": 4,
-        "y": 84
+        "y": 105
       },
       "links": [],
       "fieldConfig": {
@@ -3547,7 +4235,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 88
+        "y": 109
       },
       "links": [],
       "fieldConfig": {
@@ -3635,7 +4323,7 @@
         "h": 9,
         "w": 20,
         "x": 4,
-        "y": 93
+        "y": 114
       },
       "links": [],
       "fieldConfig": {
@@ -3764,7 +4452,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 102
+        "y": 123
       },
       "panels": []
     },
@@ -3781,7 +4469,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 103
+        "y": 124
       },
       "links": [],
       "fieldConfig": {
@@ -3868,7 +4556,7 @@
         "h": 9,
         "w": 20,
         "x": 4,
-        "y": 103
+        "y": 124
       },
       "links": [],
       "fieldConfig": {
@@ -3982,7 +4670,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 107
+        "y": 128
       },
       "links": [],
       "fieldConfig": {
@@ -4070,7 +4758,7 @@
         "h": 9,
         "w": 20,
         "x": 4,
-        "y": 112
+        "y": 133
       },
       "links": [],
       "fieldConfig": {
@@ -4199,7 +4887,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 121
+        "y": 142
       },
       "panels": []
     },
@@ -4216,7 +4904,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 122
+        "y": 143
       },
       "links": [],
       "fieldConfig": {
@@ -4305,7 +4993,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 122
+        "y": 143
       },
       "links": [],
       "fieldConfig": {
@@ -4399,7 +5087,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 132
+        "y": 153
       },
       "links": [],
       "fieldConfig": {
@@ -4658,6 +5346,6 @@
   "timezone": "browser",
   "title": "Claude Code Telemetry",
   "uid": null,
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
