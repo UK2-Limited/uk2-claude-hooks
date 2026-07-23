@@ -11,6 +11,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const c = require('./lib/common.js');
+const { splitCommand } = require('./lib/cmdsplit.js');
 
 // model: value from an agent definition's YAML frontmatter, '' when absent.
 function frontmatterModel(file) {
@@ -138,9 +139,20 @@ c.run((input) => {
     }
   }
   const ok = !failed;
+  // Chained commands additionally ship split for aggregation: segments (the
+  // chain cut at top-level ;/&&/||/newlines) and per-pipeline-stage program
+  // names — computed from the untruncated normalized command, so segments
+  // past the 200-char `command` cutoff survive. Best effort: a parser error
+  // omits the arrays, never the event.
+  let split = null;
+  if (tool === 'Bash' && cmd) {
+    try { split = splitCommand(cmd); } catch { split = null; }
+  }
   c.logEvent(input, 'tool_use', {
     tool, ok, message_id: msgId || null, model: msgModel || null,
     ...(tool === 'Bash' && cmd ? { command: c.trunc(cmd, 200) } : {}),
+    ...(split && split.segments.length ? { command_segments: split.segments } : {}),
+    ...(split && split.programs.length ? { command_programs: split.programs } : {}),
     ...(filePath ? { file_path: c.trunc(fInfo ? fInfo.relPath : c.relCmd(filePath, input), 300) } : {}),
     ...usage,
   }, fileOpts);

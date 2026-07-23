@@ -181,7 +181,9 @@ step; default `<project>/..`), plus the four gate kill switches above.
 
 [`grafana/claude-telemetry-dashboard.json`](grafana/claude-telemetry-dashboard.json) is a
 portable import template for the "Claude Code Telemetry" dashboard (usage & tokens, test
-health, guardrail friction, tool/skill/agent usage). To import it on any Grafana:
+health, guardrail friction, tool/skill/agent usage, and a Bash Details section — top
+`command_programs`/`command_segments`, calls over time by program, top failing
+commands). To import it on any Grafana:
 
 1. Add an Elasticsearch datasource pointing at the telemetry index (default
    `claude-telemetry`, time field `ts`).
@@ -243,7 +245,7 @@ session-root attribution. Per-type fields:
 
 | Event | Fields |
 |---|---|
-| `tool_use` | `tool`, `ok`, `message_id`, `model` (of the issuing assistant message; `null` when unknown), `command` (Bash calls only — first 200 chars, path-normalized per the note below; absent on other tools), `file_path` (file-path tools only — Read/Edit/Write/MultiEdit/NotebookEdit, from the call's `file_path`/`notebook_path` input; first 300 chars, path-normalized per the note below; absent on other tools), `tokens_in/out`, `tokens_cache_read/created`. Token counts are those of the assistant **message** that issued the call — parallel tool calls in one message share the numbers, so dedupe on `message_id` when summing (that also makes `tool_use` the right source for per-model cost). For sub-agent calls (`subagent: true`) the counts come from the sub-agent's own transcript; `null` when that transcript can't be found. |
+| `tool_use` | `tool`, `ok`, `message_id`, `model` (of the issuing assistant message; `null` when unknown), `command` (Bash calls only — first 200 chars, path-normalized per the note below; absent on other tools), `command_segments` (Bash calls only, since 2026-07 — the normalized command split at top-level `;`/`&&`/`\|\|`/`&`/newlines, quote-aware, pipelines kept whole; computed **before** the 200-char `command` truncation, max 20 entries × 200 chars), `command_programs` (Bash calls only, since 2026-07 — one entry per pipeline stage in scan order: the program name plus the subcommand for known multi-word tools, e.g. `git show`, `gh pr view`; recurses one level into `$(...)`/backtick/subshell contents; env-assignment prefixes, wrappers like `sudo`/`env`/`xargs`, redirections and shell keywords are skipped; max 30 entries — aggregate on this for "top commands" panels), `file_path` (file-path tools only — Read/Edit/Write/MultiEdit/NotebookEdit, from the call's `file_path`/`notebook_path` input; first 300 chars, path-normalized per the note below; absent on other tools), `tokens_in/out`, `tokens_cache_read/created`. Token counts are those of the assistant **message** that issued the call — parallel tool calls in one message share the numbers, so dedupe on `message_id` when summing (that also makes `tool_use` the right source for per-model cost). For sub-agent calls (`subagent: true`) the counts come from the sub-agent's own transcript; `null` when that transcript can't be found. |
 | `skill_use` | `skill`, `args` (truncated), `ok` |
 | `agent_use` | `agent_type`, `description`, `model`, `model_source` (`override` = explicit in the call, `agent-def` = agent frontmatter, `session` = inherited session model inferred from the transcript), `spawned_agent_id` (the launched sub-agent's id — join it against other events' `agent_id`; `null` when the response doesn't carry one), `ok` |
 | `edit` | `tool`, `file_path` (repo-relative — relative to the subfolder checkout when re-attributed per the workspace note above), `lines_added`, `lines_removed`, `permission_mode` — counted from the tool's `structuredPatch`; for a Write that creates a new file (empty patch) `lines_added` is counted from the accepted content; both counts `null` when no patch is available (e.g. NotebookEdit). Emitted only for **successful** Edit/Write/MultiEdit/NotebookEdit calls; failed edits show up as `tool_failure` instead. |
@@ -254,7 +256,9 @@ session-root attribution. Per-type fields:
 | `session_summary` | `end_reason`, `wall_ms`, `tests_run`, `tool_failures`, `compile_fails`, `tool_calls`, `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `total_subagent_tokens` (sub-agent input + output), `total_subagent_cache_tokens` (sub-agent cache creation + read), `total_tokens` (input + output + sub-agent), `total_cache_tokens` (cache creation + read + sub-agent), `turns`, `model` (last main-loop assistant model — a label; cost mixed-model sessions from `tool_use` events instead). `input_tokens`/`output_tokens`/cache fields and `turns` cover the **main loop only**; usage from sub-agent transcripts (Task/Agent tool, Workflow fan-outs, stored under the session's `subagents/` dir) is summed into the `total_subagent_*` fields and included in the two grand totals. Token sums are **deduped per assistant message** — the transcript repeats a message's usage once per content block, and inline sidechain (sub-agent) turns are excluded — so `turns` = unique assistant messages. Summaries shipped before this dedupe landed (2026-07) are inflated roughly 3–4× and carried a never-populated `est_cost_usd` (dropped 2026-07 — compute cost downstream from tokens + `model`); expect a step drop in dashboards at that date. |
 
 Note: the `command` fields (`tool_use`, `tool_failure`, `test_run`,
-`dangerous_bash_blocked`) and `tool_use.file_path` are **path-normalized before
+`dangerous_bash_blocked`), `tool_use.command_segments`/`command_programs`
+(derived from the normalized command) and `tool_use.file_path` are
+**path-normalized before
 truncation** so identical commands aggregate across users/checkouts: paths under
 the session working directory become relative, a bare cwd becomes `.`, and a
 remaining `$HOME` prefix folds to `~` (since 2026-07; earlier events carry

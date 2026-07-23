@@ -452,6 +452,39 @@ async function waitSpoolStable(timeoutMs = 10000) {
   wantAllow('no context without ticket');
   check('records session-start baseline', fs.existsSync(path.join(PROJ, '.claude', 'state', `session-${SID}.json`)));
 
+  console.log('== cmdsplit ==');
+  const { splitCommand } = require('../scripts/lib/cmdsplit.js');
+  const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  let spl = splitCommand('cd .; echo "=== x ==="; git show abc123 --stat 2>/dev/null | head -30');
+  check('cmdsplit segments split at top-level ; keeping pipelines whole',
+    eq(spl.segments, ['cd .', 'echo "=== x ==="', 'git show abc123 --stat 2>/dev/null | head -30']));
+  check('cmdsplit programs per pipeline stage with git subcommand',
+    eq(spl.programs, ['cd', 'echo', 'git show', 'head']));
+  spl = splitCommand('grep -n "a;b" f && echo \'x|y\'');
+  check('cmdsplit separators inside quotes do not split',
+    eq(spl.segments, ['grep -n "a;b" f', "echo 'x|y'"]) && eq(spl.programs, ['grep', 'echo']));
+  spl = splitCommand('f=$(find . -name "*.yaml" | head -1); grep -n x "$f"');
+  check('cmdsplit assignment with $() stays one segment',
+    eq(spl.segments, ['f=$(find . -name "*.yaml" | head -1)', 'grep -n x "$f"']));
+  check('cmdsplit recurses into $() for programs', eq(spl.programs, ['grep', 'find', 'head']));
+  spl = splitCommand('gh pr view 6514 --json state 2>&1');
+  check('cmdsplit gh takes two subcommand words', eq(spl.programs, ['gh pr view']));
+  spl = splitCommand('sudo systemctl restart nginx');
+  check('cmdsplit unwraps sudo', eq(spl.programs, ['systemctl restart']));
+  spl = splitCommand('if grep -q x f; then echo y; fi');
+  check('cmdsplit control keywords are not programs', eq(spl.programs, ['grep', 'echo']));
+  spl = splitCommand('(cd sub && make) | tee log');
+  check('cmdsplit recurses into subshells', eq(spl.programs, ['tee', 'cd', 'make']));
+  spl = splitCommand('cat <<EOF > out\nbody line; ls\nEOF');
+  check('cmdsplit heredoc body is not parsed as commands',
+    eq(spl.segments, ['cat <<EOF > out']) && eq(spl.programs, ['cat']));
+  spl = splitCommand('echo "unterminated ; grep x');
+  check('cmdsplit unbalanced quote stays one segment',
+    spl.segments.length === 1 && eq(spl.programs, ['echo']));
+  spl = splitCommand(Array.from({ length: 40 }, (_, k) => `echo ${k}`).join('; '));
+  check('cmdsplit caps segments at 20 and programs at 30',
+    spl.segments.length === 20 && spl.programs.length === 30);
+
   console.log('== telemetry-posttool ==');
   fs.rmSync(SESS, { force: true });
   run('telemetry-posttool.js', {
@@ -516,6 +549,24 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('tool_use');
   check('tool_use payload cwd is stripped too', ev && ev.command === 'make -C app');
 
+  // Chained commands additionally ship split into segments + programs,
+  // computed from the normalized command BEFORE the 200-char truncation.
+  bashOk(`cd ${PROJ}; git show abc --stat | head -5; echo done`);
+  ev = lastEvent('tool_use');
+  check('tool_use ships command_segments from the normalized command',
+    ev && JSON.stringify(ev.command_segments)
+      === JSON.stringify(['cd .', 'git show abc --stat | head -5', 'echo done']));
+  check('tool_use ships command_programs per pipeline stage',
+    ev && JSON.stringify(ev.command_programs)
+      === JSON.stringify(['cd', 'git show', 'head', 'echo']));
+  bashOk(`echo ${'x'.repeat(220)}; grep pat lib/Foo.pm`);
+  ev = lastEvent('tool_use');
+  check('tool_use segments survive past the 200-char command cutoff',
+    ev && ev.command.length === 200
+    && JSON.stringify(ev.command_programs) === JSON.stringify(['echo', 'grep'])
+    && Array.isArray(ev.command_segments) && ev.command_segments.length === 2
+    && ev.command_segments[1] === 'grep pat lib/Foo.pm');
+
   // file_path on tool_use gets the same normalization as commands.
   const readOk = (file_path) => run('telemetry-posttool.js', {
     session_id: SID, tool_name: 'Read', tool_input: { file_path }, tool_response: {},
@@ -564,6 +615,8 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('tool_use');
   check('tool_use ok=true logged for Read', ev && ev.tool === 'Read' && ev.ok === true);
   check('tool_use command absent on non-Bash tools', ev && ev.command === undefined);
+  check('tool_use command_segments/programs absent on non-Bash tools',
+    ev && ev.command_segments === undefined && ev.command_programs === undefined);
   check('tool_use file_path logged for Read', ev && ev.file_path === 'lib/Foo.pm');
   // The transcript tail ends with an isSidechain entry (9999s) — the pick must
   // skip it and land on msg_test2's FINAL entry (out=80, not the partial 30).
