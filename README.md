@@ -227,7 +227,8 @@ Delete the old `.env` files once converted to silence the migration nag.
 
 Every event carries `ts`, `event`, `session_id`, `branch`, `repo` (`org/repo` parsed
 from the origin remote URL; folder basename when there is no remote/repo), `user`
-(git config user.email, `$USER` fallback), `host` (short hostname), `issue` (from
+(git config user.email, `$USER` fallback), `host` (short hostname),
+`plugin_version` (which build of this plugin emitted the event — see below), `issue` (from
 `UK2_ISSUE` or `.claude/state/ticket.json`, else null), `subagent` (`true` when the
 event came from a tool call made by a sub-agent — Task/Agent tool or Workflow
 fan-outs; hooks fire for those too, under the parent's `session_id`) and `agent_id`
@@ -241,7 +242,20 @@ for file-touching events (`tool_use`/`edit` carrying a `file_path`, and
 describe that subfolder's repo and its current branch, and `file_path` is
 relative to that subfolder. Detection is exactly one level deep; everything
 else (deeper nesting, files outside the root, non-file events) keeps
-session-root attribution. Per-type fields:
+session-root attribution.
+
+`plugin_version` (since 2026-08) says which build of this plugin emitted the event,
+so a dashboard can show who is running a stale install. Because
+`.claude-plugin/plugin.json` deliberately declares no `version`, Claude Code caches
+the plugin under its 12-char commit sha, and that directory name is the value you
+get (`76a8f3bfe1c4`). A developer running from their own checkout or a local
+marketplace reports `<sha>-local` instead — that tree may hold uncommitted changes,
+so it must not be conflated with the published build of the same sha. `unknown` when
+neither applies. If a `version` is ever added to the manifest it takes precedence and
+this field becomes that semver. Events shipped before 2026-08 have no
+`plugin_version` at all.
+
+Per-type fields:
 
 | Event | Fields |
 |---|---|

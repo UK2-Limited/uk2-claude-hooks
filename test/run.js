@@ -10,6 +10,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
+// Required in-process only for the pure helpers (resolvePluginVersion); every
+// hook is still exercised by spawning it.
+const common = require('../scripts/lib/common.js');
 
 const ROOT = path.resolve(__dirname, '..');
 const SCRIPTS = path.join(ROOT, 'scripts');
@@ -1071,6 +1074,39 @@ async function waitSpoolStable(timeoutMs = 10000) {
     ev && ev.total_subagent_cache_tokens === 80 && ev.total_cache_tokens === 35 + 80);
   check('session_summary main-loop token fields unchanged by sub-agents',
     ev && ev.input_tokens === 300 && ev.output_tokens === 130 && ev.turns === 2);
+
+  console.log('== plugin version ==');
+  // resolvePluginVersion is pure and takes the root as an argument, so all four
+  // resolution branches are testable against throwaway dirs — no real install.
+  const PVROOT = path.join(PROJ, 'plugin-roots');
+  function pluginRoot(name, manifest) {
+    const d = path.join(PVROOT, name);
+    fs.mkdirSync(d, { recursive: true });
+    if (manifest !== undefined) {
+      fs.mkdirSync(path.join(d, '.claude-plugin'), { recursive: true });
+      fs.writeFileSync(path.join(d, '.claude-plugin', 'plugin.json'),
+        typeof manifest === 'string' ? manifest : JSON.stringify(manifest));
+    }
+    return d;
+  }
+  check('plugin version: sha-named cache dir reports the commit',
+    common.resolvePluginVersion(pluginRoot('76a8f3bfe1c4')) === '76a8f3bfe1c4');
+  // Locks in the future-proof path: a semver added later must win over the dir.
+  check('plugin version: manifest version wins over the sha-named dir',
+    common.resolvePluginVersion(pluginRoot('b050cc790029', { name: 'x', version: '1.3.0' })) === '1.3.0');
+  check('plugin version: broken manifest falls back to the dir name',
+    common.resolvePluginVersion(pluginRoot('3b9bae988e3f', '{ not json')) === '3b9bae988e3f');
+  // PVROOT lives inside PROJ's git repo, so this also pins the guard against a
+  // bare `rev-parse` walking up and reporting a containing repo's sha.
+  check('plugin version: non-git dir inside another repo is unknown',
+    common.resolvePluginVersion(pluginRoot('some-checkout')) === 'unknown');
+  // --short=12 is a minimum; git widens it to stay unambiguous.
+  check('plugin version: git checkout reports short sha tagged -local',
+    /^[0-9a-f]{12,}-local$/.test(common.resolvePluginVersion(PROJ)));
+
+  const enveloped = lastEvent('tool_use');
+  check('plugin version: shipped in the event envelope',
+    enveloped && typeof enveloped.plugin_version === 'string' && enveloped.plugin_version.length > 0);
 
   console.log('== telemetry-verify (CLI) ==');
   // Hermetic stand-in for ~/.claude/projects/<flattened-path>/ — the CLI takes

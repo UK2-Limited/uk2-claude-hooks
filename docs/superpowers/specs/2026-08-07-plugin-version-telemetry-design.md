@@ -73,10 +73,26 @@ function resolvePluginVersion(root) {
   if (m && typeof m.version === 'string' && m.version) return m.version;
   const base = path.basename(root);
   if (/^[0-9a-f]{7,40}$/.test(base)) return base;
-  const sha = gitOut(['rev-parse', '--short=12', 'HEAD'], root);
-  return sha ? `${sha}-local` : 'unknown';
+  // Only accept HEAD when the root IS the repo top level (see note below).
+  const top = gitOut(['rev-parse', '--show-toplevel'], root);
+  let real = '';
+  try { real = fs.realpathSync(root); } catch { /* root gone */ }
+  if (top && real && top === real) {
+    const sha = gitOut(['rev-parse', '--short=12', 'HEAD'], root);
+    if (sha) return `${sha}-local`;
+  }
+  return 'unknown';
 }
 ```
+
+**Correction found during implementation.** The first draft of this spec called for a
+bare `git rev-parse HEAD` on the root. That is wrong: `rev-parse` walks *up* the
+directory tree, so a plugin directory that merely sits inside some unrelated checkout —
+a git-tracked `$HOME`, which is a common dotfiles setup — would report that repo's HEAD
+as the plugin version. The `--show-toplevel` versus `realpath` comparison above rejects
+it, reusing the idiom `gitInfoFor()` already uses in the same file. The test for the
+`unknown` branch pins this, since the fixture directories are created inside the
+suite's throwaway git repo.
 
 Resolution order, and why:
 
@@ -133,7 +149,7 @@ Unit tests of `resolvePluginVersion` against throwaway directories under `$TMPDI
 |---|---|
 | Directory named `76a8f3bfe1c4`, no manifest | `76a8f3bfe1c4` |
 | Directory with `.claude-plugin/plugin.json` declaring `"version": "1.3.0"` | `1.3.0` |
-| Plain directory, not git, not hex-named | `unknown` |
+| Plain directory, not hex-named, sitting inside another git repo | `unknown` |
 | A git checkout | matches `/^[0-9a-f]{12,}-local$/` (`--short=12` is a minimum; git extends it to stay unambiguous) |
 
 The manifest case is tested even though no manifest version exists today — it locks in the

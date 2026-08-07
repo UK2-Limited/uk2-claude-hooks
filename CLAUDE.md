@@ -17,6 +17,11 @@ read (see the migration section in README.md).
 
 - `.claude-plugin/plugin.json` — manifest. **Deliberately has no `version` field** so every
   commit ships as an update; don't add one without deciding to move to tagged releases.
+  This is now load-bearing twice over: Claude Code caches a versionless plugin under its
+  12-char commit sha (`<cache>/<marketplace>/<plugin>/<sha>/`), and that directory name is
+  where the `plugin_version` telemetry field reads the build from. Adding a `version` would
+  change both the update semantics and what that field reports (it would report the semver
+  — `resolvePluginVersion()` checks the manifest first, so the switch is graceful).
 - `.claude-plugin/marketplace.json` — this repo doubles as its own single-plugin marketplace.
 - `hooks/hooks.json` — event wiring; scripts are invoked as
   `node "${CLAUDE_PLUGIN_ROOT}/scripts/<name>.js"`.

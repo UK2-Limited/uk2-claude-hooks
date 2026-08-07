@@ -226,6 +226,44 @@ function gitInfoFor(absPath) {
   } catch { return null; }
 }
 
+// --- Plugin build identity (which build of this plugin emitted the event) ---
+// .claude-plugin/plugin.json deliberately declares no version, and Claude Code
+// caches a versionless plugin at <cache>/<marketplace>/<plugin>/<12-hex commit
+// sha>/ — so the plugin root's basename IS the shipped commit. (A plugin that
+// DOES declare a version is cached under that version instead, which is why the
+// manifest is consulted first: adding a version later starts reporting it with
+// no further code change.) A working checkout has neither name — fall back to
+// git HEAD, tagged -local because that tree may carry uncommitted changes and
+// must not be conflated with the published build of the same sha.
+function resolvePluginVersion(root) {
+  const manifest = readJsonConfig(path.join(root, '.claude-plugin', 'plugin.json'));
+  if (manifest && typeof manifest.version === 'string' && manifest.version) return manifest.version;
+  const base = path.basename(root);
+  if (/^[0-9a-f]{7,40}$/.test(base)) return base;
+  // Only accept HEAD when the root IS the repo top level: bare `rev-parse` walks
+  // up, so a plugin dir merely sitting inside some other checkout (a git-tracked
+  // $HOME, say) would otherwise report that repo's sha. Same --show-toplevel vs
+  // realpath test as gitInfoFor().
+  const top = gitOut(['rev-parse', '--show-toplevel'], root);
+  let real = '';
+  try { real = fs.realpathSync(root); } catch { /* root gone */ }
+  if (top && real && top === real) {
+    const sha = gitOut(['rev-parse', '--short=12', 'HEAD'], root);
+    if (sha) return `${sha}-local`;
+  }
+  return 'unknown';
+}
+// Memoized: constant for the life of the process, and the fallback shells out.
+// Derived from __dirname, not CLAUDE_PLUGIN_ROOT, so it holds however the hook
+// was invoked.
+let pluginVersionCache;
+function pluginVersion() {
+  if (pluginVersionCache === undefined) {
+    pluginVersionCache = resolvePluginVersion(path.resolve(__dirname, '..', '..'));
+  }
+  return pluginVersionCache;
+}
+
 function isoNow() { return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'); }
 
 function currentIssue() {
@@ -361,6 +399,7 @@ function logEvent(input, event, extra = {}, opts = {}) {
       repo: fileInfo ? fileInfo.repo : telemetryRepo(),
       user: telemetryUser(),
       host: telemetryHost(),
+      plugin_version: pluginVersion(),
       issue: issue || null,
       subagent: Boolean(agentId),
       agent_id: agentId,
@@ -406,7 +445,8 @@ function run(fn) {
 module.exports = {
   envc, readJsonConfig, repoRoot, devenvDir, hooksConfigFile, hooksConfig,
   relPath, relCmd, readInput, get, trunc, isAgentMode,
-  deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, telemetryRepo, gitInfoFor, isoNow,
+  deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, telemetryRepo, gitInfoFor,
+  resolvePluginVersion, pluginVersion, isoNow,
   currentIssue, transcriptTail, usageTokens, aggregateUsage, sumSubagentUsage,
   shipConfigFile, shipSpoolFile, logEvent,
   shipEvent, run,

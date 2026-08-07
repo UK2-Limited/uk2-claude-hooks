@@ -5216,6 +5216,352 @@
         }
       ],
       "transformations": []
+    },
+    {
+      "id": 108,
+      "type": "row",
+      "title": "Plugin Version",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 163
+      },
+      "panels": []
+    },
+    {
+      "id": 109,
+      "type": "stat",
+      "title": "Plugin builds in use",
+      "description": "Distinct plugin_version values reporting in the window. Anything above 1 means somebody is on a stale install.",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_ELASTICSEARCH}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 4,
+        "x": 0,
+        "y": 164
+      },
+      "links": [],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "",
+          "bucketAggs": [
+            {
+              "id": "20",
+              "settings": {
+                "filters": [
+                  {
+                    "label": "total",
+                    "query": "*"
+                  }
+                ]
+              },
+              "type": "filters"
+            }
+          ],
+          "metrics": [
+            {
+              "field": "plugin_version",
+              "id": "1",
+              "type": "cardinality"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene}",
+          "queryType": "lucene",
+          "timeField": "ts"
+        }
+      ],
+      "transformations": []
+    },
+    {
+      "id": 110,
+      "type": "table",
+      "title": "Plugin version by user",
+      "description": "The newest build each developer has reported and when they last reported it. Sorted most-recently-active first — anyone whose version lags the top row needs to run /plugin marketplace update uk2-claude-hooks.",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_ELASTICSEARCH}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 10,
+        "x": 4,
+        "y": 164
+      },
+      "links": [],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*Max ts.*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "",
+          "bucketAggs": [
+            {
+              "field": "user",
+              "id": "3",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "2",
+                "size": "100"
+              },
+              "type": "terms"
+            },
+            {
+              "field": "plugin_version",
+              "id": "4",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "2",
+                "size": "1"
+              },
+              "type": "terms"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            },
+            {
+              "field": "ts",
+              "id": "2",
+              "type": "max"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene}",
+          "queryType": "lucene",
+          "timeField": "ts"
+        }
+      ],
+      "transformations": []
+    },
+    {
+      "id": 111,
+      "type": "timeseries",
+      "title": "Plugin version adoption over time",
+      "description": "Events per build over time. A healthy rollout reads as one curve replacing another; a flat tail is somebody who never updated.",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_ELASTICSEARCH}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 10,
+        "x": 14,
+        "y": 164
+      },
+      "links": [],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "red"
+              }
+            ]
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_ELASTICSEARCH}"
+          },
+          "alias": "",
+          "bucketAggs": [
+            {
+              "field": "plugin_version",
+              "id": "3",
+              "settings": {
+                "min_doc_count": "1",
+                "order": "desc",
+                "orderBy": "1",
+                "size": "10"
+              },
+              "type": "terms"
+            },
+            {
+              "field": "ts",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0",
+                "trimEdges": "0"
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "branch:${branch:lucene} AND repo:${repo:lucene} AND user:${user:lucene} AND host:${host:lucene}",
+          "queryType": "lucene",
+          "timeField": "ts"
+        }
+      ],
+      "transformations": []
     }
   ],
   "refresh": "",
