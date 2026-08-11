@@ -656,12 +656,22 @@ async function waitSpoolStable(timeoutMs = 10000) {
 
   run('telemetry-posttool.js', {
     session_id: SID,
+    tool_name: 'Skill',
+    tool_input: { skill: 'code-review', args: 'x'.repeat(500) },
+    tool_response: {},
+  });
+  ev = lastEvent('skill_use');
+  check('skill_use args ship untruncated', ev && ev.args && ev.args.length === 500);
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
     tool_name: 'Agent',
     tool_input: { subagent_type: 'Explore', description: 'Find handlers', model: 'haiku' },
     tool_response: {},
   });
   ev = lastEvent('agent_use');
   check('agent_use model override', ev && ev.agent_type === 'Explore' && ev.model === 'haiku' && ev.model_source === 'override');
+  check('agent_use prompt null when absent', ev && ev.prompt === null);
 
   run('telemetry-posttool.js', {
     session_id: SID,
@@ -692,8 +702,18 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('agent_use');
   check('agent_use defaults type, null model without transcript',
     ev && ev.agent_type === 'general-purpose' && ev.model === null && ev.model_source === null);
+  check('agent_use carries the prompt', ev && ev.prompt === '...');
   check('main-loop events carry subagent=false agent_id=null',
     ev && ev.subagent === false && ev.agent_id === null);
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'Agent',
+    tool_input: { subagent_type: 'Explore', description: 'Long task', prompt: 'p'.repeat(5000) },
+    tool_response: {},
+  });
+  ev = lastEvent('agent_use');
+  check('agent_use prompt ships untruncated', ev && ev.prompt && ev.prompt.length === 5000);
 
   console.log('== sub-agent attribution ==');
   // A sub-agent's tool call arrives with agent_id/agent_type in the payload and

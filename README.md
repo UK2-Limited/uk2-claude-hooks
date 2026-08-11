@@ -260,8 +260,8 @@ Per-type fields:
 | Event | Fields |
 |---|---|
 | `tool_use` | `tool`, `ok`, `message_id`, `model` (of the issuing assistant message; `null` when unknown), `command` (Bash calls only — first 200 chars, path-normalized per the note below; absent on other tools), `command_segments` (Bash calls only, since 2026-07 — the normalized command split at top-level `;`/`&&`/`\|\|`/`&`/newlines, quote-aware, pipelines kept whole; computed **before** the 200-char `command` truncation, max 20 entries × 200 chars), `command_programs` (Bash calls only, since 2026-07 — one entry per pipeline stage in scan order: the program name plus the subcommand for known multi-word tools, e.g. `git show`, `gh pr view`; recurses one level into `$(...)`/backtick/subshell contents; env-assignment prefixes, wrappers like `sudo`/`env`/`xargs`, redirections and shell keywords are skipped; max 30 entries — aggregate on this for "top commands" panels), `file_path` (file-path tools only — Read/Edit/Write/MultiEdit/NotebookEdit, from the call's `file_path`/`notebook_path` input; first 300 chars, path-normalized per the note below; absent on other tools), `tokens_in/out`, `tokens_cache_read/created`. Token counts are those of the assistant **message** that issued the call — parallel tool calls in one message share the numbers, so dedupe on `message_id` when summing (that also makes `tool_use` the right source for per-model cost). For sub-agent calls (`subagent: true`) the counts come from the sub-agent's own transcript; `null` when that transcript can't be found. |
-| `skill_use` | `skill`, `args` (truncated), `ok` |
-| `agent_use` | `agent_type`, `description`, `model`, `model_source` (`override` = explicit in the call, `agent-def` = agent frontmatter, `session` = inherited session model inferred from the transcript), `spawned_agent_id` (the launched sub-agent's id — join it against other events' `agent_id`; `null` when the response doesn't carry one), `ok` |
+| `skill_use` | `skill`, `args` (untruncated since 2026-08; earlier events carry the first 200 chars), `ok` |
+| `agent_use` | `agent_type`, `description`, `model`, `model_source` (`override` = explicit in the call, `agent-def` = agent frontmatter, `session` = inherited session model inferred from the transcript), `spawned_agent_id` (the launched sub-agent's id — join it against other events' `agent_id`; `null` when the response doesn't carry one), `ok`, `prompt` (since 2026-08 — the full task instruction given to the sub-agent, **untruncated**; `null` when absent. Can be thousands of chars: map it as `text` in the index — a `keyword` mapping with `ignore_above: 256` would silently drop it from search) |
 | `edit` | `tool`, `file_path` (repo-relative — relative to the subfolder checkout when re-attributed per the workspace note above), `lines_added`, `lines_removed`, `permission_mode` — counted from the tool's `structuredPatch`; for a Write that creates a new file (empty patch) `lines_added` is counted from the accepted content; both counts `null` when no patch is available (e.g. NotebookEdit). Emitted only for **successful** Edit/Write/MultiEdit/NotebookEdit calls; failed edits show up as `tool_failure` instead. |
 | `test_run` | `command`, `target`, `exit_code`, `passed`, `failed`, `tests_run`, `duration_ms` |
 | `tool_failure` | `tool`, `exit_code`, `command`, `error_summary` |
@@ -278,8 +278,10 @@ the session working directory become relative, a bare cwd becomes `.`, and a
 remaining `$HOME` prefix folds to `~` (since 2026-07; earlier events carry
 absolute paths). A `file_path` re-attributed to a first-level subfolder checkout
 (workspace note above) is relative to that subfolder instead (since 2026-07).
-They and `skill_use.args` still ship **unredacted** — treat the index
-accordingly (same caveat the in-repo bash hooks had).
+They, `skill_use.args` and `agent_use.prompt` still ship **unredacted** — treat
+the index accordingly (same caveat the in-repo bash hooks had). The latter two
+are also untruncated (since 2026-08): anything pasted into a skill argument or
+sub-agent prompt — code, logs, secrets — lands in the index verbatim.
 
 ## Development
 

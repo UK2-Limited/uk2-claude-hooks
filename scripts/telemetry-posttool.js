@@ -161,7 +161,7 @@ c.run((input) => {
   if (tool === 'Skill') {
     const skill = String(c.get(input, 'tool_input.skill') || 'unknown');
     const args = String(c.get(input, 'tool_input.args') || '');
-    c.logEvent(input, 'skill_use', { skill, args: args ? c.trunc(args, 200) : null, ok });
+    c.logEvent(input, 'skill_use', { skill, args: args || null, ok });
   }
 
   // --- agent_use: which subagent type was spawned (Agent tool, aka Task) ---
@@ -194,6 +194,8 @@ c.run((input) => {
       // Joins the spawn to the worker's own events (their agent_id).
       spawned_agent_id: c.get(input, 'tool_response.agentId') || null,
       ok,
+      // Full task instruction given to the subagent — ships untruncated.
+      prompt: String(c.get(input, 'tool_input.prompt') || '') || null,
     });
   }
 
