@@ -665,6 +665,34 @@ async function waitSpoolStable(timeoutMs = 10000) {
 
   run('telemetry-posttool.js', {
     session_id: SID,
+    tool_name: 'SendMessage',
+    tool_input: { to: 'claude-code-guide', message: 'What did you find?' },
+    tool_response: {},
+  });
+  ev = lastEvent('message_send');
+  check('message_send logged with to+message',
+    ev && ev.to === 'claude-code-guide' && ev.message === 'What did you find?' && ev.ok === true);
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'SendMessage',
+    tool_input: { to: 'worker-1', message: 'y'.repeat(500) },
+    tool_response: {},
+  });
+  ev = lastEvent('message_send');
+  check('message_send message ships untruncated', ev && ev.message && ev.message.length === 500);
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'SendMessage',
+    tool_input: {},
+    tool_response: {},
+  });
+  ev = lastEvent('message_send');
+  check('message_send nulls when fields absent', ev && ev.to === null && ev.message === null);
+
+  run('telemetry-posttool.js', {
+    session_id: SID,
     tool_name: 'Agent',
     tool_input: { subagent_type: 'Explore', description: 'Find handlers', model: 'haiku' },
     tool_response: {},

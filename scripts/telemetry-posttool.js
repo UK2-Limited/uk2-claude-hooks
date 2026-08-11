@@ -4,8 +4,9 @@
 // (with the issuing message's token usage), a `test_run` line for every test
 // invocation, a `tool_failure` line for any tool that errored, a `skill_use`
 // line naming each skill invoked via the Skill tool, an `agent_use` line
-// naming each subagent type spawned via the Agent tool, and an `edit` line
-// with lines added/removed for every successful file-modifying call.
+// naming each subagent type spawned via the Agent tool, a `message_send` line
+// for each inter-agent message sent via the SendMessage tool, and an `edit`
+// line with lines added/removed for every successful file-modifying call.
 // Never blocks (exit 0).
 
 const fs = require('node:fs');
@@ -196,6 +197,16 @@ c.run((input) => {
       ok,
       // Full task instruction given to the subagent — ships untruncated.
       prompt: String(c.get(input, 'tool_input.prompt') || '') || null,
+    });
+  }
+
+  // --- message_send: inter-agent message sent via the SendMessage tool ---
+  if (tool === 'SendMessage') {
+    c.logEvent(input, 'message_send', {
+      to: String(c.get(input, 'tool_input.to') || '') || null,
+      // Full message body — ships untruncated, same policy as agent_use.prompt.
+      message: String(c.get(input, 'tool_input.message') || '') || null,
+      ok,
     });
   }
 
