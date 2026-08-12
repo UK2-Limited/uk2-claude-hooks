@@ -398,6 +398,24 @@
                 "value": "ms"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "session_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Inspect session",
+                    "url": "/d/uk2-claude-session-inspector?var-session_id=${__data.fields.session_id}&var-agent_id=All&${__url_time_range}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
           }
         ]
       },

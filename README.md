@@ -177,7 +177,7 @@ paths), `UK2_AGENT_MODE` (enables the hard gates; `CI=true` does too), `UK2_ISSU
 attribution), `UK2_DEVENV_DIR` (where docker-compose lives for compile-check's default
 step; default `<project>/..`), plus the four gate kill switches above.
 
-## Grafana dashboard
+## Grafana dashboards
 
 [`grafana/claude-telemetry-dashboard.json`](grafana/claude-telemetry-dashboard.json) is a
 portable import template for the "Claude Code Telemetry" dashboard (usage & tokens, test
@@ -196,6 +196,26 @@ Every panel respects the `Branch`, `Repo`, `User`, and `Host` filter variables
 fields that every event carries, so documents shipped by versions of the hooks that predate any of those fields
 drop out of filtered panels — re-ship old local JSONL with `telemetry-backfill.js` if
 counts look low.
+
+[`grafana/claude-session-inspector-dashboard.json`](grafana/claude-session-inspector-dashboard.json)
+is the companion "Claude Code Session Inspector" dashboard: pick one session and follow
+what it did and when. Import it the same way (same datasource input). It leads with a
+session picker — click a `session_id` in the "Sessions in range" table and the dashboard
+selects that session **and zooms the time range to its exact window**; the "Session
+summaries" table and a `Session` dropdown offer the same selection without the zoom. Below
+that: overview stats, a per-agent activity chart (`main` plus one lane per sub-agent
+`agent_id` — overlap means parallel sub-agents), the sub-agent spawn table (`agent_use`
+with full prompts — hover a cell and hit the inspect icon to read them), inter-agent
+messages, skills, a chronological table of every event the session shipped, and
+edits/tests/friction details. An `Agent` filter variable narrows every event panel to
+one sub-agent's lane — click a `spawned_agent_id` in the spawn table to set it (its
+"All" value deliberately expands to
+`agent_id:* OR (_exists_:event AND NOT _exists_:agent_id)` so main-loop events, which
+carry no `agent_id`, stay in scope; session links reset it to All). The inspector imports with the fixed UID
+`uk2-claude-session-inspector`; the overview dashboard's "Top sessions by tokens" table
+links through to it per row — keep that UID if you fork the file, or the links break.
+Sessions still running have no `session_summary` yet, so the summary-derived panels stay
+empty while the counts, flow and timeline panels work live.
 
 ## Migrating from `hooks.env` / `config.env`
 
