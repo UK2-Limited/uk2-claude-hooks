@@ -552,6 +552,88 @@ async function waitSpoolStable(timeoutMs = 10000) {
   ev = lastEvent('tool_use');
   check('tool_use payload cwd is stripped too', ev && ev.command === 'make -C app');
 
+  // Web tools ship their target on the tool_use event: WebFetch the fetched
+  // URL (500-char cap), WebSearch the search query (300-char cap).
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'WebFetch',
+    tool_input: { url: 'https://example.com/docs/page?a=1', prompt: 'summarize this page' },
+  });
+  ev = lastEvent('tool_use');
+  check('tool_use carries WebFetch url',
+    ev && ev.tool === 'WebFetch' && ev.ok === true && ev.url === 'https://example.com/docs/page?a=1');
+  check('tool_use no command/file_path/query on WebFetch',
+    ev && ev.command === undefined && ev.file_path === undefined && ev.query === undefined);
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'WebFetch',
+    tool_input: { url: `https://example.com/${'x'.repeat(600)}` },
+  });
+  ev = lastEvent('tool_use');
+  check('tool_use WebFetch url truncated to 500 chars',
+    ev && typeof ev.url === 'string' && ev.url.length === 500);
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'WebSearch',
+    tool_input: { query: 'node zero dependency telemetry' },
+  });
+  ev = lastEvent('tool_use');
+  check('tool_use carries WebSearch query',
+    ev && ev.tool === 'WebSearch' && ev.query === 'node zero dependency telemetry');
+  check('tool_use no url on WebSearch', ev && ev.url === undefined);
+
+  // ToolSearch reuses the query field; task tools ship task identity
+  // (TaskCreate's id from the RESPONSE, TaskUpdate/TaskStop from the input);
+  // AskUserQuestion ships the question texts, not the answers.
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'ToolSearch',
+    tool_input: { query: 'select:WebFetch', max_results: 5 },
+  });
+  ev = lastEvent('tool_use');
+  check('tool_use carries ToolSearch query',
+    ev && ev.tool === 'ToolSearch' && ev.query === 'select:WebFetch');
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'TaskCreate',
+    tool_input: { subject: 'Fix login bug', description: 'details' },
+    tool_response: { taskId: 'task-42' },
+  });
+  ev = lastEvent('tool_use');
+  check('tool_use TaskCreate ships response task_id + subject',
+    ev && ev.task_id === 'task-42' && ev.task_subject === 'Fix login bug');
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'TaskUpdate',
+    tool_input: { taskId: 'task-42', status: 'completed' },
+  });
+  ev = lastEvent('tool_use');
+  check('tool_use TaskUpdate ships input task_id + status',
+    ev && ev.task_id === 'task-42' && ev.task_status === 'completed'
+    && ev.task_subject === undefined);
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'TaskStop',
+    tool_input: { task_id: 'task-42' },
+  });
+  ev = lastEvent('tool_use');
+  check('tool_use TaskStop honours the task_id input key', ev && ev.task_id === 'task-42');
+  run('telemetry-posttool.js', {
+    session_id: SID,
+    tool_name: 'AskUserQuestion',
+    tool_input: {
+      questions: [
+        { question: 'Which database?', header: 'DB', options: [{ label: 'a' }] },
+        { question: 'Deploy now?', header: 'Deploy' },
+      ],
+    },
+  });
+  ev = lastEvent('tool_use');
+  check('tool_use ships AskUserQuestion question texts',
+    ev && JSON.stringify(ev.questions) === JSON.stringify(['Which database?', 'Deploy now?']));
+  check('tool_use questions absent on other tools, no answer leak',
+    ev && ev.query === undefined && ev.task_id === undefined);
+
   // Chained commands additionally ship split into segments + programs,
   // computed from the normalized command BEFORE the 200-char truncation.
   bashOk(`cd ${PROJ}; git show abc --stat | head -5; echo done`);

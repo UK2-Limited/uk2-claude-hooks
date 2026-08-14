@@ -149,12 +149,43 @@ c.run((input) => {
   if (tool === 'Bash' && cmd) {
     try { split = splitCommand(cmd); } catch { split = null; }
   }
+  // Web/search tools carry their target: WebFetch the fetched URL, WebSearch
+  // and ToolSearch the query — shipped like Bash's `command`, absent on other
+  // tools.
+  const webUrl = String(c.get(input, 'tool_input.url') || '');
+  const webQuery = String(c.get(input, 'tool_input.query') || '');
+  // Task tools carry the task identity: TaskCreate's id comes from the tool
+  // RESPONSE (the input has none yet), TaskUpdate/TaskStop from the input —
+  // one field, so create/update/stop chains join on it.
+  const taskId = String(
+    (['TaskUpdate', 'TaskStop'].includes(tool)
+      ? c.get(input, 'tool_input.taskId') || c.get(input, 'tool_input.task_id')
+      : c.get(input, 'tool_response.taskId') || c.get(input, 'tool_response.task_id')
+        || c.get(input, 'tool_response.task.id')) || '');
+  const taskSubject = String(c.get(input, 'tool_input.subject') || '');
+  const taskStatus = String(c.get(input, 'tool_input.status') || '');
+  // AskUserQuestion: the question texts posed to the user (not the answers).
+  let questions = null;
+  if (tool === 'AskUserQuestion') {
+    const qs = c.get(input, 'tool_input.questions');
+    if (Array.isArray(qs)) {
+      questions = qs.slice(0, 10)
+        .map((q) => c.trunc(String((q && q.question) || ''), 300))
+        .filter(Boolean);
+    }
+  }
   c.logEvent(input, 'tool_use', {
     tool, ok, message_id: msgId || null, model: msgModel || null,
     ...(tool === 'Bash' && cmd ? { command: c.trunc(cmd, 200) } : {}),
     ...(split && split.segments.length ? { command_segments: split.segments } : {}),
     ...(split && split.programs.length ? { command_programs: split.programs } : {}),
     ...(filePath ? { file_path: c.trunc(fInfo ? fInfo.relPath : c.relCmd(filePath, input), 300) } : {}),
+    ...(tool === 'WebFetch' && webUrl ? { url: c.trunc(webUrl, 500) } : {}),
+    ...(['WebSearch', 'ToolSearch'].includes(tool) && webQuery ? { query: c.trunc(webQuery, 300) } : {}),
+    ...(['TaskCreate', 'TaskUpdate', 'TaskStop'].includes(tool) && taskId ? { task_id: c.trunc(taskId, 100) } : {}),
+    ...(['TaskCreate', 'TaskUpdate'].includes(tool) && taskSubject ? { task_subject: c.trunc(taskSubject, 200) } : {}),
+    ...(tool === 'TaskUpdate' && taskStatus ? { task_status: c.trunc(taskStatus, 50) } : {}),
+    ...(questions && questions.length ? { questions } : {}),
     ...usage,
   }, fileOpts);
 
