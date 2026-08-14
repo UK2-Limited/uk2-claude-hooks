@@ -162,7 +162,7 @@ falls back to its built-in rules on a malformed `hooks.json`.
 Without config, hooks only write local JSONL under `<project>/.claude/telemetry/` — shipping
 is off. To ship to Elasticsearch:
 
-1. Copy `telemetry.json.example` to `<project>/.claude/telemetry/config.json`, `chmod 600` it.
+1. Copy `telemetry.json.example` to `~/.claude/telemetry/config.json` (If you have multiple projects you want to use this on) or `<project>/.claude/telemetry/config.json`, `chmod 600` it.
 2. Fill in `esUrl` (+ `esApiKey` / `cfClientId`+`cfClientSecret` as needed; `esIndex`
    defaults to `claude-telemetry`).
 3. Make sure the consuming repo gitignores `.claude/telemetry/` and `.claude/state/`.
@@ -217,31 +217,6 @@ links through to it per row — keep that UID if you fork the file, or the links
 Sessions still running have no `session_summary` yet, so the summary-derived panels stay
 empty while the counts, flow and timeline panels work live.
 
-## Migrating from `hooks.env` / `config.env`
-
-**Breaking change**: the plugin no longer reads the shell-style
-`.claude/validation/hooks.env` or `.claude/telemetry/config.env` files — config files are
-JSON now. The same applies to `.claude/validation/protected-paths.txt`: its deny/warn
-rules move into the `protectedPaths` block of `hooks.json`. Until converted, the gates fall back to their built-in defaults and telemetry
-shipping is off (local JSONL still accumulates and can be backfilled afterwards); hooks
-print a one-line stderr nag while a stale `.env` file is present. `UK2_*`/`CHIMERA_*`
-*environment variables* for mode, paths, and kill switches are unaffected.
-
-| Old env-file key | New JSON key |
-|---|---|
-| `UK2_COMPILE_CHECK_<n>_CMD/_MATCH/_CWD/_PRECHECK/_ERROR_RE/_TIMEOUT_MS` | `compileCheck.steps[i].cmd/match/cwd/precheck/errorRe/timeoutMs` (array order = run order; no more 20-step cap) |
-| `UK2_COMPILE_CHECK_DISABLE` | `compileCheck.disable` (env var still works) |
-| `UK2_TEST_INTEGRITY_FILE_RE/_ASSERT_RE/_SKIP_RE` | `testIntegrity.fileRe/assertRe/skipRe` |
-| `UK2_TEST_INTEGRITY_DISABLE` | `testIntegrity.disable` (env var still works) |
-| `UK2_STOP_GATE_CMD` | `stopGate.cmds` (now an array — all must pass) |
-| `UK2_STOP_GATE_TIMEOUT_MS/_MAX_BLOCKS/_MESSAGE` | `stopGate.timeoutMs/maxBlocks/message` |
-| `UK2_STOP_GATE_DISABLE` | `stopGate.disable` (env var still works) |
-| `protected-paths.txt` lines (`deny:<pat>` / `warn:<pat>`) | `protectedPaths.deny[]` / `protectedPaths.warn[]` (same pattern semantics) |
-| `UK2_TELEMETRY_ES_URL/_ES_INDEX/_ES_API_KEY` | `esUrl` / `esIndex` / `esApiKey` in `config.json` |
-| `UK2_TELEMETRY_CF_CLIENT_ID/_SECRET` | `cfClientId` / `cfClientSecret` |
-| `UK2_TELEMETRY_DISABLE` | `disable` (env var still works) |
-
-Delete the old `.env` files once converted to silence the migration nag.
 
 ## Event schema
 
