@@ -2,6 +2,7 @@ node_modules/
 *.log
 .claude/telemetry/
 .claude/state/
+.claude/settings.local.json
 
 # Graphify Stuff
 # local only
