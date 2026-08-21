@@ -217,6 +217,26 @@ links through to it per row — keep that UID if you fork the file, or the links
 Sessions still running have no `session_summary` yet, so the summary-derived panels stay
 empty while the counts, flow and timeline panels work live.
 
+[`grafana/claude-plugin-adoption-dashboard.json`](grafana/claude-plugin-adoption-dashboard.json)
+is the "Claude Code Plugin Adoption" dashboard: who is running this plugin and when each
+developer last shipped telemetry. Import it the same way (same datasource input). It leads
+with four stats — developers, machines, events, and distinct plugin builds in use — above a
+table with one row per `user`, newest activity first, showing `last seen` (absolute),
+`ago` (relative to now), `first seen`, `events` and `sessions`. Clicking a user opens the
+Session Inspector filtered to them, so it imports with the fixed UID
+`uk2-claude-plugin-adoption` and depends on the inspector keeping
+`uk2-claude-session-inspector`. Below that, a "Plugin builds in play" table breaks activity
+down by `plugin_version` to surface stale or `-local` installs, and a bar chart tracks
+distinct developers shipping per day.
+
+There is deliberately no "active vs. gone quiet" counter: Elasticsearch aggregations can't
+express "older than N days" without hard-coding a date, so **the time picker is the activity
+filter** — set the range to 7 days and the table lists exactly who was active in that window
+(it defaults to 30 days). Only `Repo`, `User` and `Host` filter variables are present here;
+`Branch` is meaningless for adoption. Note that `user` is whatever `git config user.email`
+returns on each machine, so a developer with an inconsistent git identity appears as more
+than one row, and `plugin_version` is absent from events shipped before 2026-08.
+
 
 ## Event schema
 
