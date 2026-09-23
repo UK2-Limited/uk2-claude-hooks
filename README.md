@@ -162,20 +162,23 @@ falls back to its built-in rules on a malformed `hooks.json`.
 Without config, hooks only write local JSONL under `<project>/.claude/telemetry/` — shipping
 is off. To ship to Elasticsearch:
 
-1. Copy `telemetry.json.example` to `~/.claude/telemetry/config.json` (If you have multiple projects you want to use this on) or `<project>/.claude/telemetry/config.json`, `chmod 600` it.
+1. Copy `telemetry.json.example` to `~/.claude_telemetry/config.json` (If you have multiple projects you want to use this on) or `<project>/.claude/telemetry/config.json`, `chmod 600` it.
 2. Fill in `esUrl` (+ `esApiKey` / `cfClientId`+`cfClientSecret` as needed; `esIndex`
    defaults to `claude-telemetry`).
 3. Make sure the consuming repo gitignores `.claude/telemetry/` and `.claude/state/`.
 
 Kill switch: `UK2_TELEMETRY_DISABLE=1` in the environment, or `"disable": true` in
-`config.json`. Failed sends spool to `.claude/telemetry/unshipped.jsonl` and drain
+`~/.claude/settings.json` or `<project>/.claude/settings.json`. Failed sends spool to `.claude/telemetry/unshipped.jsonl` and drain
 automatically on later events, or in bulk via the backfill CLI.
 
 **Environment variables**: every `UK2_*` variable also accepts its `CHIMERA_*` twin.
 Knobs: `UK2_TELEMETRY_CONFIG` / `UK2_TELEMETRY_SPOOL` / `UK2_HOOKS_CONFIG` (override
 paths), `UK2_AGENT_MODE` (enables the hard gates; `CI=true` does too), `UK2_ISSUE` (issue
 attribution), `UK2_DEVENV_DIR` (where docker-compose lives for compile-check's default
-step; default `<project>/..`), plus the four gate kill switches above.
+step; default `<project>/..`), plus the four gate kill switches above. One we use is `UK2_TELEMETRY_CONFIG` to specify where the global telemetry file is located by adding the below to `~/.claude/settings.json`
+`"env": {
+    "UK2_TELEMETRY_CONFIG": "~/.claude_telemetry/config.json"
+ },`
 
 ## Grafana dashboards
 
