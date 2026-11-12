@@ -265,6 +265,13 @@ function pluginVersion() {
 }
 
 function isoNow() { return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'); }
+// A transcript timestamp in isoNow()'s format (second precision); null when
+// absent or unparseable.
+function isoTs(ts) {
+  if (typeof ts !== 'string' || !ts) return null;
+  const ms = Date.parse(ts);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
 
 function currentIssue() {
   const fromEnv = envc('ISSUE');
@@ -371,6 +378,105 @@ function sumSubagentUsage(transcriptPath) {
   return totals;
 }
 
+// --- Slash-invoked skills (typed `/skill args`) ---
+// A typed slash command is expanded straight into the prompt: no tool call
+// happens, so PostToolUse never sees it. The transcript records it as a
+// main-chain user entry carrying <command-name>/<command-args>, followed by an
+// isMeta companion (parentUuid = that entry) whose text starts with "Base
+// directory for this skill:". Built-in commands (/clear, /model, /compact …)
+// write the <command-name> entry too but never that companion, so the
+// companion, not the tag, is what marks a skill. Detection is structural (no
+// skill names listed anywhere): new project/user/plugin skills are picked up
+// as they appear. Shared by session-summary (live, at SessionEnd) and the
+// slash-skill-backfill CLI so the two can't drift.
+const SKILL_COMPANION = 'Base directory for this skill:';
+
+function entryText(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map((b) => (b && typeof b.text === 'string' ? b.text : '')).join('');
+}
+
+// -> [{transcript_uuid, ts, skill, args, branch}] in transcript order. An entry
+// that is malformed in any way is skipped on its own.
+function slashSkillInvocations(entries) {
+  const companionOf = new Set();
+  for (const e of entries) {
+    try {
+      if (e.type === 'user' && e.isMeta === true && e.isSidechain !== true && e.parentUuid
+        && entryText(e.message && e.message.content).trimStart().startsWith(SKILL_COMPANION)) {
+        companionOf.add(e.parentUuid);
+      }
+    } catch { /* malformed entry: skip it */ }
+  }
+  const out = [];
+  const seen = new Set();
+  for (const e of entries) {
+    try {
+      if (e.type !== 'user' || e.isMeta === true || e.isSidechain === true) continue;
+      if (!e.uuid || !companionOf.has(e.uuid) || seen.has(e.uuid)) continue;
+      const text = entryText(e.message && e.message.content);
+      const name = text.match(/<command-name>\s*\/?([^<]*?)\s*<\/command-name>/);
+      const ts = isoTs(e.timestamp);
+      if (!name || !name[1] || !ts) continue;
+      const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/);
+      seen.add(e.uuid);
+      out.push({
+        transcript_uuid: e.uuid,
+        ts,
+        skill: name[1],
+        args: args && args[1].trim() ? args[1] : null,
+        branch: typeof e.gitBranch === 'string' && e.gitBranch ? e.gitBranch : null,
+      });
+    } catch { /* malformed entry: skip it */ }
+  }
+  return out;
+}
+
+// skill_use fields for one slash invocation, used by both the live path and the
+// backfill. ts is the invocation's own time (not session end) and branch the
+// branch the transcript recorded at that moment; both keys already exist in the
+// envelope, so overriding them keeps the line's key order.
+function slashSkillFields(inv) {
+  return {
+    ts: inv.ts,
+    ...(inv.branch ? { branch: inv.branch } : {}),
+    skill: inv.skill,
+    args: inv.args,
+    ok: true,
+    via: 'slash_command',
+    transcript_uuid: inv.transcript_uuid,
+  };
+}
+
+// transcript_uuids already logged as slash skill_use anywhere in this project's
+// telemetry. Project-wide, not per-session: SessionEnd re-runs on a resumed
+// session, and a forked/background session copies its parent's history with
+// the same uuids, so either could log the same invocation twice. Only files
+// modified since sinceMs (minus a day of slack) are read: the line is written
+// after the invocation, so an older file cannot hold it — this keeps the scan
+// to recently active sessions instead of the project's whole history.
+function loggedSlashSkillUuids(sinceMs = 0) {
+  const seen = new Set();
+  const dir = path.join(repoRoot(), '.claude', 'telemetry', 'sessions');
+  let files;
+  try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return seen; }
+  for (const f of files) {
+    const p = path.join(dir, f);
+    try {
+      if (fs.statSync(p).mtimeMs < sinceMs - 86400000) continue;
+      for (const l of fs.readFileSync(p, 'utf8').split('\n')) {
+        if (!l.includes('"transcript_uuid":"') || !l.includes('"event":"skill_use"')) continue;
+        try {
+          const ev = JSON.parse(l);
+          if (ev.transcript_uuid) seen.add(ev.transcript_uuid);
+        } catch { /* corrupt line */ }
+      }
+    } catch { /* unreadable file */ }
+  }
+  return seen;
+}
+
 // --- Telemetry (append-only JSONL, never blocks) ---
 function shipConfigFile() {
   return envc('TELEMETRY_CONFIG') || path.join(repoRoot(), '.claude', 'telemetry', 'config.json');
@@ -379,38 +485,51 @@ function shipSpoolFile() {
   return envc('TELEMETRY_SPOOL') || path.join(repoRoot(), '.claude', 'telemetry', 'unshipped.jsonl');
 }
 
-// logEvent(input, <event-type>, <extra-fields>, {attributePath})
+// eventLine(input, <event-type>, <extra-fields>, {attributePath}) -> the JSON
+// line logEvent would write, without writing it (the backfill's --dry-run
+// prints these). extra is spread last, so an envelope key in it (ts, branch,
+// issue) overrides the value but keeps the key's position.
 // opts.attributePath: absolute path of the file a tool touched — when it lives
 // in a first-level subfolder repo of the session root (multi-repo workspace),
 // repo/branch describe THAT repo instead of the session root.
+function eventLine(input, event, extra = {}, opts = {}) {
+  const sid = get(input, 'session_id') || 'nosession';
+  const issue = currentIssue();
+  // agent_id is present in the hook payload only when the call was made by a
+  // sub-agent (Task/Agent tool, Workflow fan-outs); session_id stays the parent's.
+  const agentId = get(input, 'agent_id') || null;
+  const fileInfo = opts.attributePath ? gitInfoFor(opts.attributePath) : null;
+  return JSON.stringify({
+    ts: isoNow(),
+    event,
+    session_id: sid,
+    branch: fileInfo ? fileInfo.branch : (gitOut(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown'),
+    repo: fileInfo ? fileInfo.repo : telemetryRepo(),
+    user: telemetryUser(),
+    host: telemetryHost(),
+    plugin_version: pluginVersion(),
+    issue: issue || null,
+    subagent: Boolean(agentId),
+    agent_id: agentId,
+    ...extra,
+  });
+}
+
+// logEvent(input, <event-type>, <extra-fields>, {attributePath, ship})
+// Appends the line to the session's JSONL and ships it (detached) unless
+// opts.ship === false — then the caller ships it itself (SessionEnd ships in
+// the foreground). Returns the line, or null when it could not be written.
 function logEvent(input, event, extra = {}, opts = {}) {
   try {
     const sid = get(input, 'session_id') || 'nosession';
-    const issue = currentIssue();
-    // agent_id is present in the hook payload only when the call was made by a
-    // sub-agent (Task/Agent tool, Workflow fan-outs); session_id stays the parent's.
-    const agentId = get(input, 'agent_id') || null;
-    const fileInfo = opts.attributePath ? gitInfoFor(opts.attributePath) : null;
-    const line = JSON.stringify({
-      ts: isoNow(),
-      event,
-      session_id: sid,
-      branch: fileInfo ? fileInfo.branch : (gitOut(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown'),
-      repo: fileInfo ? fileInfo.repo : telemetryRepo(),
-      user: telemetryUser(),
-      host: telemetryHost(),
-      plugin_version: pluginVersion(),
-      issue: issue || null,
-      subagent: Boolean(agentId),
-      agent_id: agentId,
-      ...extra,
-    });
+    const line = eventLine(input, event, extra, opts);
     const dir = path.join(repoRoot(), '.claude', 'telemetry', 'sessions');
     fs.mkdirSync(dir, { recursive: true });
     // Single-line O_APPEND writes at this size are atomic — no lock needed.
     fs.appendFileSync(path.join(dir, `${sid}.jsonl`), `${line}\n`);
-    shipEvent(line);
-  } catch { /* telemetry must never block the agent */ }
+    if (opts.ship !== false) shipEvent(line);
+    return line;
+  } catch { return null; /* telemetry must never block the agent */ }
 }
 
 // --- Real-time shipping to Elasticsearch (fire-and-forget, fail-open) ---
@@ -446,8 +565,9 @@ module.exports = {
   envc, readJsonConfig, repoRoot, devenvDir, hooksConfigFile, hooksConfig,
   relPath, relCmd, readInput, get, trunc, isAgentMode,
   deny, block, pathMatches, gitOut, telemetryUser, telemetryHost, telemetryRepo, gitInfoFor,
-  resolvePluginVersion, pluginVersion, isoNow,
+  resolvePluginVersion, pluginVersion, isoNow, isoTs,
   currentIssue, transcriptTail, usageTokens, aggregateUsage, sumSubagentUsage,
-  shipConfigFile, shipSpoolFile, logEvent,
+  slashSkillInvocations, slashSkillFields, loggedSlashSkillUuids,
+  shipConfigFile, shipSpoolFile, eventLine, logEvent,
   shipEvent, run,
 };

@@ -4,7 +4,9 @@
 // transcript (plus sub-agent transcripts under <transcript>/subagents/),
 // computes wall time, counts test runs / failures from this
 // session's JSONL, and appends a `session_summary` line to both the
-// per-session file and summaries.jsonl. Ships in the FOREGROUND — SessionEnd
+// per-session file and summaries.jsonl. Also recovers slash-invoked skills
+// (typed `/skill args`) from the transcript as `skill_use` events — they never
+// reach PostToolUse. Ships in the FOREGROUND — SessionEnd
 // is not latency sensitive and a detached child could be reaped as Claude
 // Code exits (bounded by the fetch timeouts).
 
@@ -39,13 +41,14 @@ c.run(async (input) => {
     // mixed-model sessions should cost from tool_use events instead.
     model: null,
   };
+  // Whole transcript, parsed (malformed lines dropped individually).
+  const entries = transcript ? c.transcriptTail(transcript, Infinity) : [];
   if (transcript) {
     try {
-      // Whole transcript, parsed. aggregateUsage dedupes per message.id (the
-      // transcript repeats a message's full usage once per content block) and
-      // skips inline sidechain turns — their usage is summed from the
-      // sub-agent transcripts below.
-      const entries = c.transcriptTail(transcript, Infinity);
+      // aggregateUsage dedupes per message.id (the transcript repeats a
+      // message's full usage once per content block) and skips inline
+      // sidechain turns — their usage is summed from the sub-agent
+      // transcripts below.
       const agg = c.aggregateUsage(entries);
       tok.input_tokens = agg.input_tokens;
       tok.output_tokens = agg.output_tokens;
@@ -80,6 +83,24 @@ c.run(async (input) => {
   let events = '';
   try { events = fs.readFileSync(sessionFile, 'utf8'); } catch { /* none yet */ }
 
+  // Slash-invoked skills: one skill_use per invocation, stamped with the
+  // invocation's own time. Main transcript only — slash commands never appear
+  // under subagents/. Each transcript entry is logged once across the project
+  // (see loggedSlashSkillUuids), so re-running SessionEnd emits nothing new.
+  // Logged before the summary and shipped with it below.
+  const skillLines = [];
+  try {
+    const invs = c.slashSkillInvocations(entries);
+    if (invs.length) {
+      const logged = c.loggedSlashSkillUuids(Math.min(...invs.map((i) => Date.parse(i.ts))));
+      for (const inv of invs) {
+        if (logged.has(inv.transcript_uuid)) continue;
+        const line = c.logEvent(input, 'skill_use', c.slashSkillFields(inv), { ship: false });
+        if (line) skillLines.push(line);
+      }
+    }
+  } catch { /* fail open: never cost the summary */ }
+
   const summary = JSON.stringify({
     ts: c.isoNow(),
     event: 'session_summary',
@@ -106,7 +127,13 @@ c.run(async (input) => {
 
   const cfg = ship.loadShipConfig();
   if (cfg) {
-    if (!(await ship.shipOne(cfg, summary))) ship.spoolLine(summary);
-    await ship.flushSpool(cfg, 500);
+    // After one failure, spool the rest without trying: ES is down for all of
+    // them, and each attempt can cost a full fetch timeout.
+    let reachable = true;
+    for (const line of [...skillLines, summary]) {
+      if (reachable) reachable = await ship.shipOne(cfg, line);
+      if (!reachable) ship.spoolLine(line);
+    }
+    if (reachable) await ship.flushSpool(cfg, 500);
   }
 });

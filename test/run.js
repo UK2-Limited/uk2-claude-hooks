@@ -9,6 +9,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawnSync, execFileSync } = require('node:child_process');
 // Required in-process only for the pure helpers (resolvePluginVersion); every
 // hook is still exercised by spawning it.
@@ -1204,6 +1205,129 @@ async function waitSpoolStable(timeoutMs = 10000) {
     ev && ev.total_subagent_cache_tokens === 80 && ev.total_cache_tokens === 35 + 80);
   check('session_summary main-loop token fields unchanged by sub-agents',
     ev && ev.input_tokens === 300 && ev.output_tokens === 130 && ev.turns === 2);
+
+  console.log('== session-summary (slash-invoked skills) ==');
+  // A typed `/skill args` never reaches PostToolUse; session-summary recovers it
+  // from the transcript. The fixture holds three real slash skills (args, empty
+  // args, plugin-prefixed) plus traps that must NOT count: /clear with its
+  // local_command system entry, /model (<command-name> but no skill companion),
+  // a sidechain slash entry, a Skill-TOOL load (companion under a tool_result),
+  // a non-JSON line, a null-message entry and a slash entry with a bad timestamp.
+  const SLASH = path.join(FIXTURES, 'transcript-slash-skills.jsonl');
+  const sessFile = (sid) => path.join(PROJ, '.claude', 'telemetry', 'sessions', `${sid}.jsonl`);
+  const SLASH_SESS = sessFile('hooktest-slash');
+  const slashPayload = {
+    session_id: 'hooktest-slash', hook_event_name: 'SessionEnd', end_reason: 'clear', transcript_path: SLASH,
+  };
+  run('session-summary.js', slashPayload);
+  const slash = events('skill_use', SLASH_SESS);
+  check('slash skills: exactly the three companion-backed invocations, in order, ts = invocation time',
+    RC === 0 && JSON.stringify(slash.map((e) => [e.skill, e.args, e.ts, e.transcript_uuid]))
+      === JSON.stringify([
+        ['ticket-implementation', '604', '2026-10-12T19:49:16Z', 'slash-impl'],
+        ['retro', null, '2026-10-12T19:51:02Z', 'slash-retro'],
+        ['eli5:eli5', 'explain the plan', '2026-10-12T19:53:30Z', 'slash-eli5'],
+      ]));
+  check('slash skills: via=slash_command, ok=true, branch from the transcript entry',
+    slash.length === 3 && slash.every((e) => e.via === 'slash_command' && e.ok === true)
+      && slash[0].branch === 'danie/604/slash' && slash[1].branch === 'main');
+  check('slash skills: full envelope, Skill-tool key order + via/transcript_uuid',
+    slash.length === 3 && JSON.stringify(Object.keys(slash[0])) === JSON.stringify([
+      'ts', 'event', 'session_id', 'branch', 'repo', 'user', 'host', 'plugin_version', 'issue',
+      'subagent', 'agent_id', 'skill', 'args', 'ok', 'via', 'transcript_uuid'])
+      && slash[0].session_id === 'hooktest-slash' && slash[0].repo === 'uk2group/scratch-repo'
+      && slash[0].user === 'hooktest@uk2group.com' && slash[0].subagent === false);
+  check('slash skills: skill_use lines precede the session_summary, which is still written',
+    JSON.stringify(fs.readFileSync(SLASH_SESS, 'utf8').trim().split('\n').map((l) => JSON.parse(l).event))
+      === JSON.stringify(['skill_use', 'skill_use', 'skill_use', 'session_summary']));
+
+  run('session-summary.js', slashPayload);
+  check('slash skills: a second SessionEnd (resumed session) emits nothing new',
+    RC === 0 && events('skill_use', SLASH_SESS).length === 3
+      && events('session_summary', SLASH_SESS).length === 2);
+  // A forked/background session copies its parent's history, uuids included.
+  run('session-summary.js', { ...slashPayload, session_id: 'hooktest-slash-fork' });
+  check('slash skills: a forked session holding the same entries logs none of them again',
+    events('skill_use', sessFile('hooktest-slash-fork')).length === 0
+      && events('session_summary', sessFile('hooktest-slash-fork')).length === 1);
+
+  // Shipping: skill lines go out in the foreground with the summary. ES is
+  // unreachable, so the first failure spools everything (dedicated spool file —
+  // detached shippers from earlier tests may still be flushing the shared one).
+  const SLASH_SHIP = path.join(PROJ, 'slash-ship-transcript.jsonl');
+  fs.writeFileSync(SLASH_SHIP, fs.readFileSync(SLASH, 'utf8').replace(/slash-/g, 'ship-'));
+  const SLASH_SPOOL = path.join(PROJ, 'slash-spool.jsonl');
+  run('session-summary.js', { ...slashPayload, session_id: 'hooktest-slash-ship', transcript_path: SLASH_SHIP }, {
+    UK2_TELEMETRY_CONFIG: path.join(FIXTURES, 'telemetry-unreachable.json'), UK2_TELEMETRY_SPOOL: SLASH_SPOOL,
+  });
+  let slashSpooled = [];
+  try { slashSpooled = fs.readFileSync(SLASH_SPOOL, 'utf8').trim().split('\n').map((l) => JSON.parse(l)); } catch { /* none */ }
+  check('slash skills: unreachable ES spools the skill lines and the summary',
+    RC === 0 && JSON.stringify(slashSpooled.map((e) => e.event))
+      === JSON.stringify(['skill_use', 'skill_use', 'skill_use', 'session_summary'])
+      && slashSpooled[0].transcript_uuid === 'ship-impl');
+
+  console.log('== slash-skill-backfill (CLI) ==');
+  // Fresh project dir inside the scratch repo (git identity resolves) and a
+  // transcript dir holding one session plus a forked copy of it (same uuids).
+  const BF = path.join(PROJ, 'bf-proj');
+  const BFT = path.join(PROJ, 'bf-transcripts');
+  const BFTELE = path.join(BF, '.claude', 'telemetry');
+  const BFSESS = path.join(BFTELE, 'sessions', 'bf-a.jsonl');
+  const BFFORK = path.join(BFTELE, 'sessions', 'bf-b.jsonl');
+  const BFSPOOL = path.join(BFTELE, 'unshipped.jsonl');
+  fs.mkdirSync(path.dirname(BFSESS), { recursive: true });
+  fs.mkdirSync(BFT, { recursive: true });
+  fs.copyFileSync(SLASH, path.join(BFT, 'bf-a.jsonl'));
+  fs.copyFileSync(SLASH, path.join(BFT, 'bf-b.jsonl'));
+  // bf-a's own telemetry records the issue it was on; the backfill inherits it
+  // rather than stamping the past with today's ticket.
+  fs.writeFileSync(BFSESS, `${JSON.stringify({
+    ts: '2026-10-12T19:49:20Z', event: 'tool_use', session_id: 'bf-a', issue: '604', tool: 'Read',
+  })}\n`);
+  const bfBefore = fs.readFileSync(BFSESS, 'utf8');
+
+  runCli('slash-skill-backfill.js', [BF, '--projects-dir', BFT, '--dry-run']);
+  const dryLines = OUT.split('\n').filter((l) => /^[0-9a-f]{40} \{/.test(l));
+  const dry = dryLines.map((l) => JSON.parse(l.slice(41)));
+  check('backfill --dry-run prints three lines, each with the sha1 of its line as _id',
+    RC === 0 && dryLines.length === 3
+      && dryLines.every((l) => l.slice(0, 40) === crypto.createHash('sha1').update(l.slice(41)).digest('hex')));
+  check('backfill --dry-run: same extraction as the live path, issue from the session\'s telemetry',
+    JSON.stringify(dry.map((e) => [e.session_id, e.skill, e.args, e.ts, e.via, e.transcript_uuid, e.issue, e.branch]))
+      === JSON.stringify([
+        ['bf-a', 'ticket-implementation', '604', '2026-10-12T19:49:16Z', 'slash_command', 'slash-impl', '604', 'danie/604/slash'],
+        ['bf-a', 'retro', null, '2026-10-12T19:51:02Z', 'slash_command', 'slash-retro', '604', 'main'],
+        ['bf-a', 'eli5:eli5', 'explain the plan', '2026-10-12T19:53:30Z', 'slash_command', 'slash-eli5', '604', 'danie/604/slash'],
+      ]));
+  check('backfill --dry-run reports the forked copy\'s entries as skipped',
+    OUT.includes('skipped 3:') && OUT.includes('copy of the entry in session bf-a'));
+  check('backfill --dry-run writes and ships nothing',
+    fs.readFileSync(BFSESS, 'utf8') === bfBefore && !fs.existsSync(BFFORK) && !fs.existsSync(BFSPOOL));
+
+  fs.copyFileSync(path.join(FIXTURES, 'telemetry-unreachable.json'), path.join(BFTELE, 'config.json'));
+  runCli('slash-skill-backfill.js', [BF, '--projects-dir', BFT]);
+  check('backfill records exactly the dry-run lines in the session JSONL (deterministic _id)',
+    RC === 0 && JSON.stringify(fs.readFileSync(BFSESS, 'utf8').trim().split('\n').slice(1))
+      === JSON.stringify(dryLines.map((l) => l.slice(41))));
+  check('backfill: unreachable ES spools all three; the forked copy gets nothing',
+    fs.readFileSync(BFSPOOL, 'utf8').trim().split('\n').length === 3 && !fs.existsSync(BFFORK)
+      && OUT.includes('shipped 0, spooled 3'));
+
+  const bfAfter = fs.readFileSync(BFSESS, 'utf8');
+  runCli('slash-skill-backfill.js', [BF, '--projects-dir', BFT]);
+  check('backfill re-run emits nothing (already logged)',
+    RC === 0 && OUT.includes('emitting 0 skill_use') && fs.readFileSync(BFSESS, 'utf8') === bfAfter);
+  run('session-summary.js', {
+    session_id: 'bf-a', hook_event_name: 'SessionEnd', transcript_path: path.join(BFT, 'bf-a.jsonl'),
+  }, { CLAUDE_PROJECT_DIR: BF });
+  check('a live SessionEnd after the backfill logs nothing new',
+    RC === 0 && events('skill_use', BFSESS).length === 3 && events('session_summary', BFSESS).length === 1);
+
+  runCli('slash-skill-backfill.js', [BF, '--bogus']);
+  check('backfill rejects unknown flags (exit 2)', RC === 2 && ERR.includes('usage:'));
+  runCli('slash-skill-backfill.js', [BF, '--projects-dir', path.join(PROJ, 'no-such-dir'), '--dry-run']);
+  check('backfill: missing transcript dir is a usage error (exit 2)', RC === 2 && ERR.includes('no transcript directory'));
 
   console.log('== plugin version ==');
   // resolvePluginVersion is pure and takes the root as an argument, so all four
