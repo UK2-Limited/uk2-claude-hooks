@@ -30,6 +30,8 @@ read (see the migration section in README.md).
   send/spool/flush; also a CLI run detached by `shipEvent`).
 - `scripts/telemetry-backfill.js` — CLI, not a hook.
 - `scripts/telemetry-verify.js` — CLI, not a hook; read-only telemetry-vs-transcript checker.
+- `scripts/slash-skill-backfill.js` — CLI, not a hook; recovers slash-invoked `skill_use`
+  events from past transcripts (same extraction as `session-summary.js`, `--dry-run` first).
 - `test/run.js` — the self-test suite; `test/fixtures/` — transcript + config fixtures.
 
 ## Hard rules
